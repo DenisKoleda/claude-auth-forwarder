@@ -1,0 +1,17 @@
+services:
+  claude-auth-bot:
+    build: .
+    container_name: claude-auth-forwarder
+    restart: unless-stopped
+    volumes:
+      # Mount credentials (required)
+      - ./credentials.json:/app/credentials.json:ro
+      # Mount token (generated after first auth)
+      - ./token.json:/app/token.json
+    environment:
+      - TZ=Europe/Moscow
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"

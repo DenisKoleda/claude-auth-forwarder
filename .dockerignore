@@ -1,0 +1,28 @@
+# Git
+.git
+.gitignore
+
+# Python
+__pycache__
+*.py[cod]
+venv/
+env/
+.venv/
+
+# IDE
+.idea/
+.vscode/
+
+# Docs
+README.md
+CHANGELOG.md
+LICENSE
+
+# Docker
+Dockerfile
+docker-compose.yml
+.dockerignore
+
+# Credentials (mount as volume instead)
+credentials.json
+token.json

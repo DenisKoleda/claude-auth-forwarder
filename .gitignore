@@ -1,0 +1,40 @@
+# Credentials (NEVER commit these!)
+credentials.json
+token.json
+config.py
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+venv/
+env/
+.venv/
+ENV/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+
+# Docker
+.docker/
+
+# Distribution
+dist/
+build/
+*.egg-info/
+
+# Serena
+.serena/
