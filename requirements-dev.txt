@@ -1,0 +1,13 @@
+# Development dependencies
+-r requirements.txt
+
+# Linting & Formatting
+ruff>=0.1.0
+
+# Type checking
+mypy>=1.0.0
+types-requests>=2.31.0
+
+# Security
+bandit>=1.7.0
+safety>=2.3.0

@@ -6,6 +6,7 @@ from telegram import Bot
 from telegram.error import TelegramError
 
 import config
+from i18n import t
 
 logger = logging.getLogger(__name__)
 
@@ -15,66 +16,63 @@ class TelegramNotifier:
         self.bot = Bot(token=config.TELEGRAM_BOT_TOKEN)
 
     async def _broadcast(self, message: str, log_success: bool = True) -> int:
-        """Отправить сообщение всем разрешённым пользователям.
+        """Send message to all allowed users.
 
         Args:
-            message: Текст сообщения
-            log_success: Логировать успешные отправки
+            message: Message text
+            log_success: Log successful sends
 
         Returns:
-            int: Количество успешных отправок
+            int: Number of successful sends
         """
         success_count = 0
         for user_id in config.ALLOWED_USER_IDS:
             try:
                 await self.bot.send_message(chat_id=user_id, text=message)
                 if log_success:
-                    logger.info(f"Сообщение отправлено пользователю {user_id}")
+                    logger.info(t("msg_sent_to_user", user_id=user_id))
                 success_count += 1
             except TelegramError as e:
-                logger.error(f"Ошибка отправки пользователю {user_id}: {e}")
+                logger.error(t("msg_send_error", user_id=user_id, error=e))
         return success_count
 
     def _format_auth_message(self, auth_data: dict[str, str], time_now: str) -> str:
-        """Форматировать сообщение с auth данными."""
-        if auth_data['type'] == 'link':
-            return (
-                f"🔐 Ссылка для входа в Claude\n\n"
-                f"Время: {time_now}\n\n"
-                f"{auth_data['value']}"
-            )
-        return (
-            f"🔐 Код авторизации Claude\n\n"
-            f"Код: {auth_data['value']}\n"
-            f"Время: {time_now}"
-        )
+        """Format message with auth data."""
+        time_label = t("time_label")
+        if auth_data["type"] == "link":
+            header = t("auth_link_header")
+            return f"{header}\n\n{time_label}: {time_now}\n\n{auth_data['value']}"
+        header = t("auth_code_header")
+        code_label = t("code_label")
+        return f"{header}\n\n{code_label}: {auth_data['value']}\n{time_label}: {time_now}"
 
     async def send_code(self, email_data: dict[str, Any]) -> bool:
-        """Отправить код/ссылку авторизации всем разрешённым пользователям.
+        """Send auth code/link to all allowed users.
 
         Returns:
-            bool: True если хотя бы одному пользователю успешно отправлено
+            bool: True if sent to at least one user successfully
         """
         time_now = datetime.now().strftime("%H:%M:%S")
-        auth_data = email_data.get('auth_data')
+        auth_data = email_data.get("auth_data")
 
         if auth_data:
             message = self._format_auth_message(auth_data, time_now)
         else:
+            subject = email_data.get("subject", t("no_subject"))
             message = (
-                f"📧 Новое письмо от Claude/Anthropic\n\n"
-                f"Тема: {email_data.get('subject', 'Без темы')}\n"
-                f"Время: {time_now}\n\n"
-                f"Не удалось извлечь код/ссылку. Проверьте почту вручную."
+                f"{t('new_email_header')}\n\n"
+                f"{t('subject_label')}: {subject}\n"
+                f"{t('time_label')}: {time_now}\n\n"
+                f"{t('extraction_failed')}"
             )
 
         return await self._broadcast(message) > 0
 
     async def send_startup_message(self) -> None:
-        """Отправить сообщение о запуске бота"""
+        """Send bot startup message."""
         message = (
-            f"✅ Бот запущен!\n\n"
-            f"Проверяю почту каждые {config.CHECK_INTERVAL} сек.\n"
-            f"Жду писем от Claude/Anthropic..."
+            f"{t('bot_started')}\n\n"
+            f"{t('checking_email_interval', interval=config.CHECK_INTERVAL)}\n"
+            f"{t('waiting_for_emails')}"
         )
         await self._broadcast(message, log_success=False)

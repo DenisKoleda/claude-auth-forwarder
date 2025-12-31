@@ -15,6 +15,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 COPY main.py .
 COPY gmail_monitor.py .
 COPY telegram_bot.py .
+COPY i18n.py .
 COPY config.py .
 
 # Create non-root user for security
