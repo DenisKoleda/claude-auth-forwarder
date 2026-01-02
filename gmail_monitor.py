@@ -159,7 +159,10 @@ class GmailMonitor:
         """Extract auth link or code from email body."""
         # Patterns for auth data: (type, regex, group)
         patterns = [
+            # Desktop link: magic-link#token
             ("link", r'https://claude\.ai/magic-link#[^\s"<>]+', 0),
+            # Mobile link: magic-link?client=ios#token (or other clients)
+            ("mobile_link", r'https://claude\.ai/magic-link\?client=[^#]+#[^\s"<>]+', 0),
             ("code", r"(?:code|код|verification|pin)[:\s]+(\d{4,8})", 1),
             ("code", r"\b(\d{6})\b", 1),
         ]

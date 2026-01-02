@@ -42,6 +42,9 @@ class TelegramNotifier:
         if auth_data["type"] == "link":
             header = t("auth_link_header")
             return f"{header}\n\n{time_label}: {time_now}\n\n{auth_data['value']}"
+        if auth_data["type"] == "mobile_link":
+            header = t("auth_mobile_link_header")
+            return f"{header}\n\n{time_label}: {time_now}\n\n{auth_data['value']}"
         header = t("auth_code_header")
         code_label = t("code_label")
         return f"{header}\n\n{code_label}: {auth_data['value']}\n{time_label}: {time_now}"

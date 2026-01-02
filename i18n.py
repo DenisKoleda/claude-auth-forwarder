@@ -81,6 +81,10 @@ MESSAGES: dict[str, dict[str, str]] = {
         "en": "🔐 Claude login link",
         "ru": "🔐 Ссылка для входа в Claude",
     },
+    "auth_mobile_link_header": {
+        "en": "📱 Claude mobile login link",
+        "ru": "📱 Ссылка для входа в Claude (мобильный)",
+    },
     "auth_code_header": {
         "en": "🔐 Claude authorization code",
         "ru": "🔐 Код авторизации Claude",
