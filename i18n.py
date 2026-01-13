@@ -126,9 +126,9 @@ MESSAGES: dict[str, dict[str, str]] = {
         "ru": "Жду писем от Claude/Anthropic...",
     },
     # ===== gmail_monitor.py =====
-    "browser_not_opened": {
-        "en": "Browser will not open automatically. Copy URL from console.",
-        "ru": "Браузер не будет открыт автоматически. Скопируйте URL из консоли.",
+    "console_auth_info": {
+        "en": "Running in console mode (VPS/SSH detected). Open the URL in your browser and enter the code.",
+        "ru": "Консольный режим (обнаружен VPS/SSH). Откройте URL в браузере и введите код.",
     },
     "gmail_auth_success": {
         "en": "Gmail authentication successful",
