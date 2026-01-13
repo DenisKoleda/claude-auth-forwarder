@@ -61,11 +61,12 @@ class GmailMonitor:
                 flow = InstalledAppFlow.from_client_secrets_file(
                     config.GMAIL_CREDENTIALS_FILE, config.GMAIL_SCOPES
                 )
-                # Auto-detect: only open browser if we can
-                should_open_browser = _can_open_browser()
-                if not should_open_browser:
-                    logger.info(t("browser_not_opened"))
-                self.creds = flow.run_local_server(port=0, open_browser=should_open_browser)
+                # Auto-detect: use console auth if browser unavailable (VPS/SSH)
+                if _can_open_browser():
+                    self.creds = flow.run_local_server(port=0, open_browser=True)
+                else:
+                    logger.info(t("console_auth_info"))
+                    self.creds = flow.run_console()
 
             with open(config.GMAIL_TOKEN_FILE, "w") as token:
                 token.write(self.creds.to_json())
