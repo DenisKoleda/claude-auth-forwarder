@@ -4,6 +4,7 @@ import os
 import re
 from typing import Any
 
+from google.auth.exceptions import RefreshError
 from google.auth.transport.requests import Request
 from google.oauth2.credentials import Credentials
 from google_auth_oauthlib.flow import InstalledAppFlow
@@ -56,8 +57,17 @@ class GmailMonitor:
 
         if not self.creds or not self.creds.valid:
             if self.creds and self.creds.expired and self.creds.refresh_token:
-                self.creds.refresh(Request())
-            else:
+                try:
+                    self.creds.refresh(Request())
+                except RefreshError as e:
+                    # Token revoked or expired - need full re-auth
+                    logger.warning(t("token_refresh_failed", error=e))
+                    if os.path.exists(config.GMAIL_TOKEN_FILE):
+                        os.remove(config.GMAIL_TOKEN_FILE)
+                        logger.info(t("token_removed"))
+                    self.creds = None
+
+            if not self.creds or not self.creds.valid:
                 flow = InstalledAppFlow.from_client_secrets_file(
                     config.GMAIL_CREDENTIALS_FILE, config.GMAIL_SCOPES
                 )
@@ -74,7 +84,25 @@ class GmailMonitor:
         self.service = build("gmail", "v1", credentials=self.creds, cache_discovery=False)
         logger.info(t("gmail_auth_success"))
 
-    def get_unread_claude_emails(self) -> list[dict[str, Any]]:
+    def _is_token_error(self, error: Exception) -> bool:
+        """Check if error is related to expired/revoked token."""
+        error_str = str(error).lower()
+        return "invalid_grant" in error_str or "token" in error_str and (
+            "expired" in error_str or "revoked" in error_str
+        )
+
+    def _reauth_if_token_error(self, error: Exception) -> bool:
+        """Re-authenticate if error is token-related. Returns True if re-auth happened."""
+        if self._is_token_error(error):
+            logger.warning(t("token_expired_reauth"))
+            if os.path.exists(config.GMAIL_TOKEN_FILE):
+                os.remove(config.GMAIL_TOKEN_FILE)
+            self.creds = None
+            self.authenticate()
+            return True
+        return False
+
+    def get_unread_claude_emails(self, _retry: bool = True) -> list[dict[str, Any]]:
         """Get unread emails from Claude/Anthropic.
 
         Returns:
@@ -101,6 +129,9 @@ class GmailMonitor:
 
             return emails
         except Exception as e:
+            # If token expired during API call, re-auth and retry once
+            if _retry and self._reauth_if_token_error(e):
+                return self.get_unread_claude_emails(_retry=False)
             raise GmailAPIError(t("gmail_fetch_error", error=e)) from e
 
     def _get_email_content(self, msg_id: str) -> dict[str, Any] | None:
@@ -175,7 +206,7 @@ class GmailMonitor:
 
         return None
 
-    def mark_as_read(self, msg_id: str) -> None:
+    def mark_as_read(self, msg_id: str, _retry: bool = True) -> None:
         """Mark email as read."""
         try:
             self.service.users().messages().modify(
@@ -183,4 +214,7 @@ class GmailMonitor:
             ).execute()
             logger.info(t("email_marked_read", msg_id=msg_id))
         except Exception as e:
+            # If token expired during API call, re-auth and retry once
+            if _retry and self._reauth_if_token_error(e):
+                return self.mark_as_read(msg_id, _retry=False)
             logger.error(t("email_mark_error", error=e))
