@@ -75,8 +75,13 @@ class GmailMonitor:
                 if _can_open_browser():
                     self.creds = flow.run_local_server(port=0, open_browser=True)
                 else:
+                    # Manual console auth (run_console was removed in newer versions)
                     logger.info(t("console_auth_info"))
-                    self.creds = flow.run_console()
+                    auth_url, _ = flow.authorization_url(prompt="consent")
+                    print(f"\n{t('open_auth_url')}\n{auth_url}\n")
+                    code = input(t("enter_auth_code"))
+                    flow.fetch_token(code=code)
+                    self.creds = flow.credentials
 
             with open(config.GMAIL_TOKEN_FILE, "w") as token:
                 token.write(self.creds.to_json())

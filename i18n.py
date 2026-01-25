@@ -130,6 +130,14 @@ MESSAGES: dict[str, dict[str, str]] = {
         "en": "Running in console mode (VPS/SSH detected). Open the URL in your browser and enter the code.",
         "ru": "Консольный режим (обнаружен VPS/SSH). Откройте URL в браузере и введите код.",
     },
+    "open_auth_url": {
+        "en": "Open this URL in your browser:",
+        "ru": "Откройте эту ссылку в браузере:",
+    },
+    "enter_auth_code": {
+        "en": "Enter authorization code: ",
+        "ru": "Введите код авторизации: ",
+    },
     "gmail_auth_success": {
         "en": "Gmail authentication successful",
         "ru": "Gmail авторизация успешна",
