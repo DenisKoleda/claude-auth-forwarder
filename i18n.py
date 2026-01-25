@@ -154,6 +154,18 @@ MESSAGES: dict[str, dict[str, str]] = {
         "en": "Error marking email as read: {error}",
         "ru": "Ошибка при пометке письма: {error}",
     },
+    "token_refresh_failed": {
+        "en": "Token refresh failed (expired/revoked): {error}",
+        "ru": "Не удалось обновить токен (истёк/отозван): {error}",
+    },
+    "token_removed": {
+        "en": "Old token removed, re-authentication required",
+        "ru": "Старый токен удалён, требуется повторная авторизация",
+    },
+    "token_expired_reauth": {
+        "en": "Token expired during API call, re-authenticating...",
+        "ru": "Токен истёк во время запроса, повторная авторизация...",
+    },
 }
 
 # Current language (set from config)
