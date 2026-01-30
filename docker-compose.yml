@@ -3,8 +3,10 @@ services:
     build: .
     container_name: claude-auth-forwarder
     restart: unless-stopped
-    stdin_open: true  # Для ввода кода авторизации при первом запуске
-    tty: true         # Интерактивный терминал
+    ports:
+      - "8080:8080"  # OAuth redirect port
+    environment:
+      - OAUTH_PORT=8080
     volumes:
       # Mount credentials (required)
       - ./credentials.json:/app/credentials.json:ro

@@ -174,6 +174,10 @@ MESSAGES: dict[str, dict[str, str]] = {
         "en": "Token expired during API call, re-authenticating...",
         "ru": "Токен истёк во время запроса, повторная авторизация...",
     },
+    "auth_success_browser": {
+        "en": "Authentication successful! You can close this window.",
+        "ru": "Авторизация успешна! Можете закрыть это окно.",
+    },
 }
 
 # Current language (set from config)

@@ -71,17 +71,16 @@ class GmailMonitor:
                 flow = InstalledAppFlow.from_client_secrets_file(
                     config.GMAIL_CREDENTIALS_FILE, config.GMAIL_SCOPES
                 )
-                # Auto-detect: use console auth if browser unavailable (VPS/SSH)
-                if _can_open_browser():
-                    self.creds = flow.run_local_server(port=0, open_browser=True)
-                else:
-                    # Manual console auth (run_console was removed in newer versions)
-                    logger.info(t("console_auth_info"))
-                    auth_url, _ = flow.authorization_url(prompt="consent")
-                    print(f"\n{t('open_auth_url')}\n{auth_url}\n")
-                    code = input(t("enter_auth_code"))
-                    flow.fetch_token(code=code)
-                    self.creds = flow.credentials
+                # Use local server for OAuth redirect (works in Docker with port forwarding)
+                auth_port = int(os.environ.get("OAUTH_PORT", 8080))
+                print(f"\n{'=' * 60}")
+                print(t("open_auth_url"))
+                print(f"{'=' * 60}\n")
+                self.creds = flow.run_local_server(
+                    port=auth_port,
+                    open_browser=_can_open_browser(),
+                    success_message=t("auth_success_browser"),
+                )
 
             with open(config.GMAIL_TOKEN_FILE, "w") as token:
                 token.write(self.creds.to_json())
