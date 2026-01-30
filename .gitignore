@@ -1,6 +1,7 @@
 # Credentials (NEVER commit these!)
 credentials.json
 token.json
+data/
 config.py
 
 # Python

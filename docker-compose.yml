@@ -8,8 +8,8 @@ services:
     volumes:
       # Mount credentials (required)
       - ./credentials.json:/app/credentials.json:ro
-      # Mount token (generated after first auth)
-      - ./token.json:/app/token.json
+      # Mount data directory for token persistence
+      - ./data:/app/data
     environment:
       - TZ=Europe/Moscow
     logging:
