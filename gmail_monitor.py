@@ -91,8 +91,10 @@ class GmailMonitor:
     def _is_token_error(self, error: Exception) -> bool:
         """Check if error is related to expired/revoked token."""
         error_str = str(error).lower()
-        return "invalid_grant" in error_str or "token" in error_str and (
-            "expired" in error_str or "revoked" in error_str
+        return (
+            "invalid_grant" in error_str
+            or "token" in error_str
+            and ("expired" in error_str or "revoked" in error_str)
         )
 
     def _reauth_if_token_error(self, error: Exception) -> bool:
@@ -151,6 +153,11 @@ class GmailMonitor:
 
             body = self._extract_body(message["payload"])
             auth_data = self._extract_auth_data(body)
+            payment_data = None
+
+            subject_lower = subject.lower()
+            if not auth_data and ("payment" in subject_lower or "unsuccessful" in subject_lower):
+                payment_data = self._extract_payment_data(body, subject)
 
             return {
                 "id": msg_id,
@@ -158,6 +165,7 @@ class GmailMonitor:
                 "from": sender,
                 "body": body,
                 "auth_data": auth_data,
+                "payment_data": payment_data,
             }
         except Exception as e:
             logger.error(t("email_read_error", msg_id=msg_id, error=e))
@@ -191,23 +199,59 @@ class GmailMonitor:
 
         return html_body
 
+    def _strip_html(self, html: str) -> str:
+        """Strip HTML tags and decode entities to get plain text."""
+        text = re.sub(r"<style[^>]*>.*?</style>", "", html, flags=re.DOTALL)
+        text = re.sub(r"<!--.*?-->", "", text, flags=re.DOTALL)
+        text = re.sub(r"<br\s*/?>", "\n", text)
+        text = re.sub(r"</?(p|div|tr|td|table|h[1-6])[^>]*>", "\n", text)
+        text = re.sub(r"<[^>]+>", "", text)
+        text = re.sub(r"&nbsp;", " ", text)
+        text = re.sub(r"&amp;", "&", text)
+        text = re.sub(r"&#\d+;", "", text)
+        text = re.sub(r"\n{3,}", "\n\n", text)
+        return text.strip()
+
     def _extract_auth_data(self, body: str) -> dict[str, str] | None:
         """Extract auth link or code from email body."""
-        # Patterns for auth data: (type, regex, group)
-        patterns = [
+        # Links are extracted from raw HTML (they're in href attributes)
+        link_patterns = [
+            # Mobile link first (more specific: has ?client= before #)
+            ("mobile_link", r'https://claude\.ai/magic-link\?client=[^#]+#[^\s"<>]+', 0),
             # Desktop link: magic-link#token
             ("link", r'https://claude\.ai/magic-link#[^\s"<>]+', 0),
-            # Mobile link: magic-link?client=ios#token (or other clients)
-            ("mobile_link", r'https://claude\.ai/magic-link\?client=[^#]+#[^\s"<>]+', 0),
-            ("code", r"(?:code|код|verification|pin)[:\s]+(\d{4,8})", 1),
-            ("code", r"\b(\d{6})\b", 1),
         ]
 
-        for auth_type, pattern, group in patterns:
+        for auth_type, pattern, group in link_patterns:
             match = re.search(pattern, body, re.IGNORECASE)
             if match:
                 return {"type": auth_type, "value": match.group(group)}
 
+        # Codes are extracted from stripped text to avoid CSS color false positives
+        clean_text = self._strip_html(body)
+        code_patterns = [
+            ("code", r"(?:code|код|verification|pin)[:\s]+(\d{4,8})", 1),
+            ("code", r"(?<!\#)\b(\d{6})\b", 1),
+        ]
+
+        for auth_type, pattern, group in code_patterns:
+            match = re.search(pattern, clean_text, re.IGNORECASE)
+            if match:
+                return {"type": auth_type, "value": match.group(group)}
+
+        return None
+
+    def _extract_payment_data(self, body: str, subject: str) -> dict[str, str] | None:
+        """Extract payment failure info from email."""
+        clean_text = self._strip_html(body) if "<" in body else body
+        amount_match = re.search(r"\$[\d,.]+", subject) or re.search(r"\$[\d,.]+", clean_text)
+        card_match = re.search(r"(?:ending in|оканчивающ\S*)\s+(\d{4})", clean_text, re.IGNORECASE)
+        if amount_match:
+            return {
+                "type": "payment_failed",
+                "amount": amount_match.group(0),
+                "card_last4": card_match.group(1) if card_match else "****",
+            }
         return None
 
     def mark_as_read(self, msg_id: str, _retry: bool = True) -> None:

@@ -57,9 +57,18 @@ class TelegramNotifier:
         """
         time_now = datetime.now().strftime("%H:%M:%S")
         auth_data = email_data.get("auth_data")
+        payment_data = email_data.get("payment_data")
 
         if auth_data:
             message = self._format_auth_message(auth_data, time_now)
+        elif payment_data:
+            message = (
+                f"{t('payment_failed_header')}\n\n"
+                f"{t('payment_amount')}: {payment_data['amount']}\n"
+                f"{t('payment_card')}: •••• {payment_data['card_last4']}\n"
+                f"{t('time_label')}: {time_now}\n\n"
+                f"{t('payment_action')}"
+            )
         else:
             subject = email_data.get("subject", t("no_subject"))
             message = (

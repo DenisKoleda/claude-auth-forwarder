@@ -113,6 +113,22 @@ MESSAGES: dict[str, dict[str, str]] = {
         "en": "Could not extract code/link. Please check email manually.",
         "ru": "Не удалось извлечь код/ссылку. Проверьте почту вручную.",
     },
+    "payment_failed_header": {
+        "en": "💳 Payment to Anthropic failed",
+        "ru": "💳 Оплата Anthropic не прошла",
+    },
+    "payment_amount": {
+        "en": "Amount",
+        "ru": "Сумма",
+    },
+    "payment_card": {
+        "en": "Card",
+        "ru": "Карта",
+    },
+    "payment_action": {
+        "en": "Update payment method at claude.ai/settings/billing",
+        "ru": "Обновите способ оплаты: claude.ai/settings/billing",
+    },
     "bot_started": {
         "en": "✅ Bot started!",
         "ru": "✅ Бот запущен!",
