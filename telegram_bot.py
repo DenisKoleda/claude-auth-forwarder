@@ -80,6 +80,15 @@ class TelegramNotifier:
 
         return await self._broadcast(message) > 0
 
+    async def send_token_expired_message(self) -> None:
+        """Send notification that Gmail token has expired."""
+        message = (
+            f"{t('token_expired_tg_header')}\n\n"
+            f"{t('token_expired_tg_body')}\n\n"
+            f"{t('token_expired_tg_action')}"
+        )
+        await self._broadcast(message)
+
     async def send_startup_message(self) -> None:
         """Send bot startup message."""
         message = (

@@ -1,8 +1,12 @@
 import base64
+import html as html_module
+import http.server
 import logging
 import os
 import re
+import threading
 from typing import Any
+from urllib.parse import parse_qs, urlparse
 
 from google.auth.exceptions import RefreshError
 from google.auth.transport.requests import Request
@@ -43,6 +47,12 @@ class GmailAPIError(Exception):
     pass
 
 
+class TokenExpiredError(Exception):
+    """Error when Gmail token is expired/revoked and re-auth is needed."""
+
+    pass
+
+
 class GmailMonitor:
     def __init__(self) -> None:
         self.service: Any = None
@@ -71,22 +81,120 @@ class GmailMonitor:
                 flow = InstalledAppFlow.from_client_secrets_file(
                     config.GMAIL_CREDENTIALS_FILE, config.GMAIL_SCOPES
                 )
-                # Use local server for OAuth redirect (works in Docker with port forwarding)
                 auth_port = int(os.environ.get("OAUTH_PORT", 8080))
-                print(f"\n{'=' * 60}")
-                print(t("open_auth_url"))
-                print(f"{'=' * 60}\n")
-                self.creds = flow.run_local_server(
-                    port=auth_port,
-                    open_browser=_can_open_browser(),
-                    success_message=t("auth_success_browser"),
-                )
+
+                if _can_open_browser():
+                    print(f"\n{'=' * 60}")
+                    print(t("open_auth_url"))
+                    print(f"{'=' * 60}\n")
+                    self.creds = flow.run_local_server(
+                        port=auth_port,
+                        open_browser=True,
+                        success_message=t("auth_success_browser"),
+                    )
+                else:
+                    self.creds = self._run_manual_auth_flow(flow, auth_port)
 
             with open(config.GMAIL_TOKEN_FILE, "w") as token:
                 token.write(self.creds.to_json())
 
         self.service = build("gmail", "v1", credentials=self.creds, cache_discovery=False)
         logger.info(t("gmail_auth_success"))
+
+    def _run_manual_auth_flow(self, flow: InstalledAppFlow, port: int) -> Credentials:
+        """Run OAuth flow via web page for headless environments (Docker/SSH/VPS).
+
+        Starts an HTTP server on 0.0.0.0:{port} that:
+        - Shows auth link and a form to paste the redirect URL at GET /
+        - Handles direct OAuth callback if redirect reaches the server (port forwarding)
+        - Handles form submission with pasted redirect URL at POST /
+        """
+        flow.redirect_uri = f"http://localhost:{port}/"
+        auth_url, _ = flow.authorization_url(access_type="offline", prompt="consent")
+
+        auth_code_result: list[str | None] = [None]
+        server_ready = threading.Event()
+
+        class OAuthHandler(http.server.BaseHTTPRequestHandler):
+            def do_GET(self) -> None:
+                parsed = urlparse(self.path)
+                params = parse_qs(parsed.query)
+
+                if "code" in params:
+                    auth_code_result[0] = params["code"][0]
+                    self.send_response(200)
+                    self.send_header("Content-Type", "text/html; charset=utf-8")
+                    self.end_headers()
+                    self.wfile.write(
+                        f"<h2>{html_module.escape(t('auth_success_browser'))}</h2>".encode()
+                    )
+                    return
+
+                self.send_response(200)
+                self.send_header("Content-Type", "text/html; charset=utf-8")
+                self.end_headers()
+                escaped_url = html_module.escape(auth_url)
+                page = (
+                    "<!DOCTYPE html><html><head><meta charset='utf-8'>"
+                    "<title>Gmail OAuth</title></head><body>"
+                    f"<h2>{html_module.escape(t('auth_page_title'))}</h2>"
+                    f"<p>{html_module.escape(t('auth_page_step1'))}</p>"
+                    f"<p><a href='{escaped_url}' target='_blank'>"
+                    f"{html_module.escape(t('auth_page_link'))}</a></p>"
+                    f"<p>{html_module.escape(t('auth_page_step2'))}</p>"
+                    f"<p>{html_module.escape(t('auth_page_step3'))}</p>"
+                    "<form method='POST'>"
+                    "<input type='text' name='url' style='width:80%;padding:8px' "
+                    f"placeholder='{html_module.escape(t('auth_page_placeholder'))}'>"
+                    "<br><br>"
+                    f"<button type='submit' style='padding:8px 24px'>"
+                    f"{html_module.escape(t('auth_page_submit'))}</button>"
+                    "</form></body></html>"
+                )
+                self.wfile.write(page.encode())
+
+            def do_POST(self) -> None:
+                content_length = int(self.headers.get("Content-Length", 0))
+                body = self.rfile.read(content_length).decode()
+                form_data = parse_qs(body)
+                pasted_url = form_data.get("url", [""])[0]
+                parsed = urlparse(pasted_url)
+                code = parse_qs(parsed.query).get("code", [None])[0]
+
+                if code:
+                    auth_code_result[0] = code
+                    self.send_response(200)
+                    self.send_header("Content-Type", "text/html; charset=utf-8")
+                    self.end_headers()
+                    self.wfile.write(
+                        f"<h2>{html_module.escape(t('auth_success_browser'))}</h2>".encode()
+                    )
+                else:
+                    self.send_response(400)
+                    self.send_header("Content-Type", "text/html; charset=utf-8")
+                    self.end_headers()
+                    self.wfile.write(
+                        f"<h2>{html_module.escape(t('auth_code_not_found'))}</h2>".encode()
+                    )
+
+            def log_message(self, format: str, *args: Any) -> None:
+                logger.debug("OAuth HTTP: %s", format % args)
+
+        server = http.server.HTTPServer(("0.0.0.0", port), OAuthHandler)
+        server.timeout = 1
+
+        logger.info(t("auth_server_started", port=port))
+        print(f"\n{'=' * 60}")
+        print(t("auth_server_hint", port=port))
+        print(f"{'=' * 60}\n")
+
+        server_ready.set()
+        while auth_code_result[0] is None:
+            server.handle_request()
+        server.server_close()
+
+        flow.fetch_token(code=auth_code_result[0])
+        return flow.credentials
 
     def _is_token_error(self, error: Exception) -> bool:
         """Check if error is related to expired/revoked token."""
@@ -98,14 +206,29 @@ class GmailMonitor:
         )
 
     def _reauth_if_token_error(self, error: Exception) -> bool:
-        """Re-authenticate if error is token-related. Returns True if re-auth happened."""
+        """Try to refresh token if error is token-related. Returns True if refresh succeeded.
+
+        Raises:
+            TokenExpiredError: If token cannot be refreshed (revoked/expired refresh token).
+        """
         if self._is_token_error(error):
             logger.warning(t("token_expired_reauth"))
+            if self.creds and self.creds.refresh_token:
+                try:
+                    self.creds.refresh(Request())
+                    self.service = build(
+                        "gmail", "v1", credentials=self.creds, cache_discovery=False
+                    )
+                    with open(config.GMAIL_TOKEN_FILE, "w") as f:
+                        f.write(self.creds.to_json())
+                    logger.info(t("gmail_auth_success"))
+                    return True
+                except RefreshError:
+                    pass
             if os.path.exists(config.GMAIL_TOKEN_FILE):
                 os.remove(config.GMAIL_TOKEN_FILE)
             self.creds = None
-            self.authenticate()
-            return True
+            raise TokenExpiredError(t("token_fully_expired"))
         return False
 
     def get_unread_claude_emails(self, _retry: bool = True) -> list[dict[str, Any]]:
