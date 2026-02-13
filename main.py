@@ -3,7 +3,7 @@ import logging
 import sys
 
 import config
-from gmail_monitor import GmailAPIError, GmailMonitor
+from gmail_monitor import GmailAPIError, GmailMonitor, TokenExpiredError
 from i18n import set_language, t
 from telegram_bot import TelegramNotifier
 
@@ -75,6 +75,12 @@ async def main() -> None:
                 logger.debug(t("no_new_emails"))
 
             await asyncio.sleep(config.CHECK_INTERVAL)
+
+        except TokenExpiredError as e:
+            logger.error(str(e))
+            await telegram.send_token_expired_message()
+            logger.info(t("bot_stopped_token_expired"))
+            sys.exit(1)
 
         except GmailAPIError as e:
             logger.error(t("gmail_api_error", error=e))

@@ -194,6 +194,68 @@ MESSAGES: dict[str, dict[str, str]] = {
         "en": "Authentication successful! You can close this window.",
         "ru": "Авторизация успешна! Можете закрыть это окно.",
     },
+    # ===== OAuth web page =====
+    "auth_page_title": {
+        "en": "Gmail Authorization",
+        "ru": "Авторизация Gmail",
+    },
+    "auth_page_step1": {
+        "en": "1. Click the link below to authorize Gmail access:",
+        "ru": "1. Нажмите на ссылку ниже для авторизации доступа к Gmail:",
+    },
+    "auth_page_link": {
+        "en": "Authorize Gmail",
+        "ru": "Авторизовать Gmail",
+    },
+    "auth_page_step2": {
+        "en": "2. After authorization, your browser will try to redirect to localhost and show an error — this is expected.",
+        "ru": "2. После авторизации браузер попытается перейти на localhost и покажет ошибку — это нормально.",
+    },
+    "auth_page_step3": {
+        "en": "3. Copy the full URL from the browser address bar and paste it below:",
+        "ru": "3. Скопируйте полный URL из адресной строки браузера и вставьте ниже:",
+    },
+    "auth_page_placeholder": {
+        "en": "http://localhost:8080/?state=...&code=...&scope=...",
+        "ru": "http://localhost:8080/?state=...&code=...&scope=...",
+    },
+    "auth_page_submit": {
+        "en": "Submit",
+        "ru": "Отправить",
+    },
+    "auth_server_started": {
+        "en": "OAuth web page started on port {port}",
+        "ru": "Веб-страница OAuth запущена на порту {port}",
+    },
+    "auth_server_hint": {
+        "en": "Open http://YOUR_SERVER_IP:{port}/ in your browser to authorize Gmail",
+        "ru": "Откройте http://IP_ВАШЕГО_СЕРВЕРА:{port}/ в браузере для авторизации Gmail",
+    },
+    "auth_code_not_found": {
+        "en": "Authorization code not found in the URL. Try again.",
+        "ru": "Код авторизации не найден в URL. Попробуйте ещё раз.",
+    },
+    # ===== Token expiry =====
+    "token_fully_expired": {
+        "en": "Gmail token is expired/revoked. Re-authentication required — restart the container.",
+        "ru": "Токен Gmail истёк/отозван. Требуется повторная авторизация — перезапустите контейнер.",
+    },
+    "token_expired_tg_header": {
+        "en": "⚠️ Gmail token expired!",
+        "ru": "⚠️ Токен Gmail истёк!",
+    },
+    "token_expired_tg_body": {
+        "en": "The bot cannot access Gmail. The token has been revoked or expired.",
+        "ru": "Бот не может получить доступ к Gmail. Токен был отозван или истёк.",
+    },
+    "token_expired_tg_action": {
+        "en": "Restart the container to re-authorize:\ndocker-compose restart",
+        "ru": "Перезапустите контейнер для повторной авторизации:\ndocker-compose restart",
+    },
+    "bot_stopped_token_expired": {
+        "en": "Bot stopped: Gmail token expired. Restart to re-authorize.",
+        "ru": "Бот остановлен: токен Gmail истёк. Перезапустите для повторной авторизации.",
+    },
 }
 
 # Current language (set from config)
