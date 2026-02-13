@@ -228,8 +228,8 @@ MESSAGES: dict[str, dict[str, str]] = {
         "ru": "Веб-страница OAuth запущена на порту {port}",
     },
     "auth_server_hint": {
-        "en": "Open http://YOUR_SERVER_IP:{port}/ in your browser to authorize Gmail",
-        "ru": "Откройте http://IP_ВАШЕГО_СЕРВЕРА:{port}/ в браузере для авторизации Gmail",
+        "en": "Open {url}/ in your browser to authorize Gmail",
+        "ru": "Откройте {url}/ в браузере для авторизации Gmail",
     },
     "auth_code_not_found": {
         "en": "Authorization code not found in the URL. Try again.",

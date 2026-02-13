@@ -12,6 +12,7 @@ services:
       - ./data:/app/data
     environment:
       - OAUTH_PORT=8080
+      - OAUTH_EXTERNAL_HOST=${OAUTH_EXTERNAL_HOST:-}
       - TZ=Europe/Moscow
     logging:
       driver: "json-file"

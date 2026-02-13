@@ -183,9 +183,15 @@ class GmailMonitor:
         server = http.server.HTTPServer(("0.0.0.0", port), OAuthHandler)
         server.timeout = 1
 
+        external_host = os.environ.get("OAUTH_EXTERNAL_HOST", "")
+        if external_host:
+            hint_url = f"http://{external_host}"
+        else:
+            hint_url = f"http://YOUR_SERVER_IP:{port}"
+
         logger.info(t("auth_server_started", port=port))
         print(f"\n{'=' * 60}")
-        print(t("auth_server_hint", port=port))
+        print(t("auth_server_hint", url=hint_url))
         print(f"{'=' * 60}\n")
 
         server_ready.set()
