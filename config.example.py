@@ -18,3 +18,6 @@ CHECK_INTERVAL = 15
 
 # Interface language: "ru" or "en"
 LANGUAGE = "ru"
+
+# Telegram proxy (optional), e.g. http://user:pass@proxy:8888
+TELEGRAM_PROXY_URL = ""

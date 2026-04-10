@@ -4,6 +4,7 @@ from typing import Any
 
 from telegram import Bot
 from telegram.error import TelegramError
+from telegram.request import HTTPXRequest
 
 import config
 from i18n import t
@@ -13,7 +14,12 @@ logger = logging.getLogger(__name__)
 
 class TelegramNotifier:
     def __init__(self) -> None:
-        self.bot = Bot(token=config.TELEGRAM_BOT_TOKEN)
+        proxy_url = getattr(config, "TELEGRAM_PROXY_URL", "")
+        if proxy_url:
+            request = HTTPXRequest(proxy=proxy_url)
+            self.bot = Bot(token=config.TELEGRAM_BOT_TOKEN, request=request)
+        else:
+            self.bot = Bot(token=config.TELEGRAM_BOT_TOKEN)
 
     async def _broadcast(self, message: str, log_success: bool = True) -> int:
         """Send message to all allowed users.
