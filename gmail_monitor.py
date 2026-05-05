@@ -184,10 +184,7 @@ class GmailMonitor:
         server.timeout = 1
 
         external_host = os.environ.get("OAUTH_EXTERNAL_HOST", "")
-        if external_host:
-            hint_url = f"http://{external_host}"
-        else:
-            hint_url = f"http://YOUR_SERVER_IP:{port}"
+        hint_url = f"http://{external_host}" if external_host else f"http://YOUR_SERVER_IP:{port}"
 
         logger.info(t("auth_server_started", port=port))
         print(f"\n{'=' * 60}")
@@ -200,7 +197,8 @@ class GmailMonitor:
         server.server_close()
 
         flow.fetch_token(code=auth_code_result[0])
-        return flow.credentials
+        creds: Credentials = flow.credentials
+        return creds
 
     def _is_token_error(self, error: Exception) -> bool:
         """Check if error is related to expired/revoked token."""
@@ -284,9 +282,8 @@ class GmailMonitor:
             auth_data = self._extract_auth_data(body)
             payment_data = None
 
-            subject_lower = subject.lower()
-            if not auth_data and ("payment" in subject_lower or "unsuccessful" in subject_lower):
-                payment_data = self._extract_payment_data(body, subject)
+            if not auth_data:
+                payment_data = self._classify_payment_email(body, subject)
 
             return {
                 "id": msg_id,
@@ -370,8 +367,19 @@ class GmailMonitor:
 
         return None
 
-    def _extract_payment_data(self, body: str, subject: str) -> dict[str, str] | None:
-        """Extract payment failure info from email."""
+    def _classify_payment_email(self, body: str, subject: str) -> dict[str, str] | None:
+        """Detect payment-related emails and extract relevant fields."""
+        subject_lower = subject.lower()
+        if "receipt" in subject_lower or "invoice" in subject_lower:
+            return self._extract_payment_success(body, subject)
+        if "paused" in subject_lower:
+            return {"type": "subscription_paused"}
+        if "payment" in subject_lower or "unsuccessful" in subject_lower:
+            return self._extract_payment_failed(body, subject)
+        return None
+
+    def _extract_payment_failed(self, body: str, subject: str) -> dict[str, str] | None:
+        """Extract failed payment info from email."""
         clean_text = self._strip_html(body) if "<" in body else body
         amount_match = re.search(r"\$[\d,.]+", subject) or re.search(r"\$[\d,.]+", clean_text)
         card_match = re.search(r"(?:ending in|оканчивающ\S*)\s+(\d{4})", clean_text, re.IGNORECASE)
@@ -382,6 +390,39 @@ class GmailMonitor:
                 "card_last4": card_match.group(1) if card_match else "****",
             }
         return None
+
+    def _extract_payment_success(self, body: str, subject: str) -> dict[str, str] | None:
+        """Extract successful payment (receipt) info from email."""
+        clean_text = self._strip_html(body) if "<" in body else body
+        amount_match = re.search(r"\$[\d,]+(?:\.\d{2})?", clean_text)
+        # "Max plan - 20x", "Pro plan", "Team plan - 5x" etc.
+        plan_match = re.search(r"\b([A-Z][A-Za-z]+\s+plan(?:\s*-\s*\d+x)?)", clean_text)
+        # "May 5–Jun 5, 2026" or "May 5-Jun 5, 2026"
+        period_match = re.search(
+            r"[A-Z][a-z]{2,8}\s+\d{1,2}\s*[–—\-]\s*[A-Z][a-z]{2,8}\s+\d{1,2},?\s+\d{4}",
+            clean_text,
+        )
+        # "Payment method - 7220" or "ending in 4242"
+        card_match = re.search(
+            r"(?:Payment method\s*-\s*|ending in\s+|оканчивающ\S*\s+)(\d{4})",
+            clean_text,
+            re.IGNORECASE,
+        )
+        # "Receipt number 2035-4974-6213" — fallback to subject "#2035-4974-6213"
+        receipt_match = re.search(
+            r"Receipt number\s+([\w-]+)", clean_text, re.IGNORECASE
+        ) or re.search(r"#([\w-]+)", subject)
+
+        if not amount_match:
+            return None
+        return {
+            "type": "payment_success",
+            "amount": amount_match.group(0),
+            "plan": plan_match.group(1) if plan_match else "",
+            "period": period_match.group(0) if period_match else "",
+            "card_last4": card_match.group(1) if card_match else "****",
+            "receipt_number": receipt_match.group(1) if receipt_match else "",
+        }
 
     def mark_as_read(self, msg_id: str, _retry: bool = True) -> None:
         """Mark email as read."""

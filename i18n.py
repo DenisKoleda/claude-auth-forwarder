@@ -117,6 +117,18 @@ MESSAGES: dict[str, dict[str, str]] = {
         "en": "💳 Payment to Anthropic failed",
         "ru": "💳 Оплата Anthropic не прошла",
     },
+    "payment_success_header": {
+        "en": "✅ Payment to Anthropic successful",
+        "ru": "✅ Оплата Anthropic прошла",
+    },
+    "subscription_paused_header": {
+        "en": "⏸ Claude subscription paused",
+        "ru": "⏸ Подписка Claude приостановлена",
+    },
+    "subscription_paused_body": {
+        "en": "Access to paid features is paused due to a failed payment. Pay the outstanding invoice to restore access.",
+        "ru": "Доступ к платным функциям приостановлен из-за неудачной оплаты. Оплатите счёт, чтобы восстановить доступ.",
+    },
     "payment_amount": {
         "en": "Amount",
         "ru": "Сумма",
@@ -124,6 +136,18 @@ MESSAGES: dict[str, dict[str, str]] = {
     "payment_card": {
         "en": "Card",
         "ru": "Карта",
+    },
+    "payment_plan": {
+        "en": "Plan",
+        "ru": "Тариф",
+    },
+    "payment_period": {
+        "en": "Period",
+        "ru": "Период",
+    },
+    "payment_receipt_number": {
+        "en": "Receipt",
+        "ru": "Чек",
     },
     "payment_action": {
         "en": "Update payment method at claude.ai/settings/billing",

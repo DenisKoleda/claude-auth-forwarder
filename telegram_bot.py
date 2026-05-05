@@ -42,6 +42,41 @@ class TelegramNotifier:
                 logger.error(t("msg_send_error", user_id=user_id, error=e))
         return success_count
 
+    def _format_payment_message(self, payment_data: dict[str, str], time_now: str) -> str:
+        """Format message for any payment-related event."""
+        time_line = f"{t('time_label')}: {time_now}"
+        ptype = payment_data.get("type")
+
+        if ptype == "payment_success":
+            lines = [t("payment_success_header"), ""]
+            lines.append(f"{t('payment_amount')}: {payment_data['amount']}")
+            if payment_data.get("plan"):
+                lines.append(f"{t('payment_plan')}: {payment_data['plan']}")
+            if payment_data.get("period"):
+                lines.append(f"{t('payment_period')}: {payment_data['period']}")
+            lines.append(f"{t('payment_card')}: •••• {payment_data['card_last4']}")
+            if payment_data.get("receipt_number"):
+                lines.append(f"{t('payment_receipt_number')}: {payment_data['receipt_number']}")
+            lines.append(time_line)
+            return "\n".join(lines)
+
+        if ptype == "subscription_paused":
+            return (
+                f"{t('subscription_paused_header')}\n\n"
+                f"{t('subscription_paused_body')}\n"
+                f"{time_line}\n\n"
+                f"{t('payment_action')}"
+            )
+
+        # payment_failed (default)
+        return (
+            f"{t('payment_failed_header')}\n\n"
+            f"{t('payment_amount')}: {payment_data['amount']}\n"
+            f"{t('payment_card')}: •••• {payment_data['card_last4']}\n"
+            f"{time_line}\n\n"
+            f"{t('payment_action')}"
+        )
+
     def _format_auth_message(self, auth_data: dict[str, str], time_now: str) -> str:
         """Format message with auth data."""
         time_label = t("time_label")
@@ -68,13 +103,7 @@ class TelegramNotifier:
         if auth_data:
             message = self._format_auth_message(auth_data, time_now)
         elif payment_data:
-            message = (
-                f"{t('payment_failed_header')}\n\n"
-                f"{t('payment_amount')}: {payment_data['amount']}\n"
-                f"{t('payment_card')}: •••• {payment_data['card_last4']}\n"
-                f"{t('time_label')}: {time_now}\n\n"
-                f"{t('payment_action')}"
-            )
+            message = self._format_payment_message(payment_data, time_now)
         else:
             subject = email_data.get("subject", t("no_subject"))
             message = (

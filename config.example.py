@@ -11,7 +11,7 @@ GMAIL_TOKEN_FILE = "token.json"  # nosec B105
 GMAIL_SCOPES = ["https://www.googleapis.com/auth/gmail.modify"]
 
 # Filter for Claude/Anthropic emails
-GMAIL_QUERY = 'from:anthropic.com (subject:"Secure link to log in" OR subject:"payment" OR subject:"unsuccessful") is:unread'
+GMAIL_QUERY = 'from:anthropic.com (subject:"Secure link to log in" OR subject:"payment" OR subject:"unsuccessful" OR subject:"receipt" OR subject:"invoice" OR subject:"paused") is:unread'
 
 # Check interval in seconds
 CHECK_INTERVAL = 15
