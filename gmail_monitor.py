@@ -306,7 +306,7 @@ class GmailMonitor:
         return base64.urlsafe_b64decode(data).decode("utf-8")
 
     def _extract_body(self, payload: dict) -> str:
-        """Extract email text."""
+        """Extract email text. Walks nested multipart parts (mixed/alternative)."""
         if payload.get("body", {}).get("data"):
             return self._decode_body_data(payload["body"]["data"])
 
@@ -315,13 +315,19 @@ class GmailMonitor:
 
         html_body = ""
         for part in payload["parts"]:
+            mime = part.get("mimeType", "")
             data = part.get("body", {}).get("data")
-            if not data:
-                continue
-            if part["mimeType"] == "text/plain":
+            if mime == "text/plain" and data:
                 return self._decode_body_data(data)
-            if part["mimeType"] == "text/html":
+            if mime == "text/html" and data and not html_body:
                 html_body = self._decode_body_data(data)
+            if mime.startswith("multipart/"):
+                nested = self._extract_body(part)
+                if nested:
+                    if "<" not in nested:
+                        return nested
+                    if not html_body:
+                        html_body = nested
 
         return html_body
 
