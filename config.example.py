@@ -19,5 +19,9 @@ CHECK_INTERVAL = 15
 # Interface language: "ru" or "en"
 LANGUAGE = "ru"
 
+# Telegram API base URL (optional) — drop-in replacement for https://api.telegram.org/bot
+# Useful when api.telegram.org is blocked. Example: https://relay.klsnv.ru/tg/bot
+TELEGRAM_BASE_URL = ""
+
 # Telegram proxy (optional), e.g. http://user:pass@proxy:8888
 TELEGRAM_PROXY_URL = ""

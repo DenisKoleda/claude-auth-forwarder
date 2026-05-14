@@ -14,12 +14,14 @@ logger = logging.getLogger(__name__)
 
 class TelegramNotifier:
     def __init__(self) -> None:
+        base_url = getattr(config, "TELEGRAM_BASE_URL", "")
         proxy_url = getattr(config, "TELEGRAM_PROXY_URL", "")
+        bot_kwargs: dict[str, Any] = {"token": config.TELEGRAM_BOT_TOKEN}
+        if base_url:
+            bot_kwargs["base_url"] = base_url
         if proxy_url:
-            request = HTTPXRequest(proxy=proxy_url)
-            self.bot = Bot(token=config.TELEGRAM_BOT_TOKEN, request=request)
-        else:
-            self.bot = Bot(token=config.TELEGRAM_BOT_TOKEN)
+            bot_kwargs["request"] = HTTPXRequest(proxy=proxy_url)
+        self.bot = Bot(**bot_kwargs)
 
     async def _broadcast(self, message: str, log_success: bool = True) -> int:
         """Send message to all allowed users.
