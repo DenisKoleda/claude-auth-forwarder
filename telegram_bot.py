@@ -188,7 +188,15 @@ class TelegramNotifier:
         """Send one image with caption to a specific user."""
         try:
             with image_path.open("rb") as image_file:
-                await self.bot.send_photo(chat_id=user_id, photo=image_file, caption=caption)
+                await self.bot.send_photo(
+                    chat_id=user_id,
+                    photo=image_file,
+                    caption=caption,
+                    connect_timeout=30,
+                    read_timeout=30,
+                    write_timeout=30,
+                    pool_timeout=30,
+                )
             return True
         except TelegramError as e:
             logger.error(t("msg_send_error", user_id=user_id, error=e))

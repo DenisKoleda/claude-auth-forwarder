@@ -111,7 +111,15 @@ class TelegramAdmin:
         for user_id in getattr(config, "ALLOWED_USER_IDS", []):
             try:
                 with image_path.open("rb") as image_file:
-                    await self.app.bot.send_photo(chat_id=user_id, photo=image_file, caption=caption)
+                    await self.app.bot.send_photo(
+                        chat_id=user_id,
+                        photo=image_file,
+                        caption=caption,
+                        connect_timeout=30,
+                        read_timeout=30,
+                        write_timeout=30,
+                        pool_timeout=30,
+                    )
                 success += 1
             except Exception as e:
                 failed += 1
