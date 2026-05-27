@@ -15,7 +15,6 @@ GMAIL_SCOPES = ["https://www.googleapis.com/auth/gmail.modify"]
 ENABLE_CLAUDE_EMAILS = True
 ENABLE_OPENAI_EMAILS = True
 ADMIN_STATE_FILE = "data/admin_state.json"  # nosec B105
-ADMIN_IMAGE_DIR = "assets/messages"
 
 # Filters for auth/billing emails
 CLAUDE_GMAIL_QUERY = 'from:anthropic.com (subject:"Secure link to log in" OR subject:"payment" OR subject:"unsuccessful" OR subject:"receipt" OR subject:"invoice" OR subject:"paused") is:unread'

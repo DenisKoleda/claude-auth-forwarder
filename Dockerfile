@@ -19,7 +19,6 @@ COPY telegram_admin.py .
 COPY admin_state.py .
 COPY i18n.py .
 COPY config.py .
-COPY assets ./assets
 
 # Create non-root user for security
 RUN useradd -m -u 1000 botuser && chown -R botuser:botuser /app
