@@ -4,6 +4,7 @@
 # Telegram settings
 TELEGRAM_BOT_TOKEN = "YOUR_BOT_TOKEN_FROM_BOTFATHER"  # nosec B105
 ALLOWED_USER_IDS = [123456789]  # Your Telegram user ID(s)
+ADMIN_USER_IDS = [123456789]  # User ID(s) allowed to use /admin and broadcasts
 
 # Gmail settings
 GMAIL_CREDENTIALS_FILE = "credentials.json"
@@ -13,6 +14,8 @@ GMAIL_SCOPES = ["https://www.googleapis.com/auth/gmail.modify"]
 # Enable providers independently
 ENABLE_CLAUDE_EMAILS = True
 ENABLE_OPENAI_EMAILS = True
+ADMIN_STATE_FILE = "data/admin_state.json"  # nosec B105
+ADMIN_IMAGE_DIR = "assets/messages"
 
 # Filters for auth/billing emails
 CLAUDE_GMAIL_QUERY = 'from:anthropic.com (subject:"Secure link to log in" OR subject:"payment" OR subject:"unsuccessful" OR subject:"receipt" OR subject:"invoice" OR subject:"paused") is:unread'

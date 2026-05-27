@@ -3,8 +3,10 @@ import logging
 import sys
 
 import config
+from admin_state import AdminState
 from gmail_monitor import GmailAPIError, GmailMonitor, TokenExpiredError
 from i18n import set_language, t
+from telegram_admin import TelegramAdmin
 from telegram_bot import TelegramNotifier
 
 # Setup logging
@@ -48,7 +50,9 @@ async def main() -> None:
 
     validate_config()
 
-    gmail = GmailMonitor()
+    admin_state = AdminState()
+    admin = TelegramAdmin(admin_state)
+    gmail = GmailMonitor(admin_state)
     telegram = TelegramNotifier()
 
     logger.info(t("gmail_auth_start"))
@@ -56,41 +60,45 @@ async def main() -> None:
 
     logger.info(t("telegram_startup"))
     await telegram.send_startup_message()
+    await admin.start()
 
     logger.info(t("monitoring_start", interval=config.CHECK_INTERVAL))
 
-    while True:
-        try:
-            emails = gmail.get_unread_emails()
+    try:
+        while True:
+            try:
+                emails = gmail.get_unread_emails()
 
-            if emails:
-                logger.info(t("emails_found", count=len(emails)))
+                if emails:
+                    logger.info(t("emails_found", count=len(emails)))
 
-                for email in emails:
-                    sent = await telegram.send_code(email)
-                    if sent:
-                        gmail.mark_as_read(email["id"])
-                    else:
-                        logger.warning(t("telegram_not_sent"))
-            else:
-                logger.debug(t("no_new_emails"))
+                    for email in emails:
+                        sent = await telegram.send_code(email)
+                        if sent:
+                            gmail.mark_as_read(email["id"])
+                        else:
+                            logger.warning(t("telegram_not_sent"))
+                else:
+                    logger.debug(t("no_new_emails"))
 
-            await asyncio.sleep(config.CHECK_INTERVAL)
+                await asyncio.sleep(config.CHECK_INTERVAL)
 
-        except TokenExpiredError as e:
-            logger.error(str(e))
-            await telegram.send_token_expired_message()
-            logger.info(t("bot_stopped_token_expired"))
-            sys.exit(1)
+            except TokenExpiredError as e:
+                logger.error(str(e))
+                await telegram.send_token_expired_message()
+                logger.info(t("bot_stopped_token_expired"))
+                sys.exit(1)
 
-        except GmailAPIError as e:
-            logger.error(t("gmail_api_error", error=e))
-            logger.info(t("retry_in_30"))
-            await asyncio.sleep(30)
+            except GmailAPIError as e:
+                logger.error(t("gmail_api_error", error=e))
+                logger.info(t("retry_in_30"))
+                await asyncio.sleep(30)
 
-        except Exception as e:
-            logger.exception(t("unexpected_error", error=e))
-            await asyncio.sleep(30)
+            except Exception as e:
+                logger.exception(t("unexpected_error", error=e))
+                await asyncio.sleep(30)
+    finally:
+        await admin.stop()
 
 
 if __name__ == "__main__":

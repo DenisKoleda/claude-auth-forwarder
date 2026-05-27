@@ -15,6 +15,7 @@ from google_auth_oauthlib.flow import InstalledAppFlow
 from googleapiclient.discovery import build
 
 import config
+from admin_state import AdminState
 from i18n import t
 
 logger = logging.getLogger(__name__)
@@ -57,15 +58,27 @@ class TokenExpiredError(Exception):
 
 
 class GmailMonitor:
-    def __init__(self) -> None:
+    def __init__(self, admin_state: AdminState | None = None) -> None:
         self.service: Any = None
         self.creds: Credentials | None = None
+        self.admin_state = admin_state
 
     def _enabled_providers(self) -> list[dict[str, str]]:
         """Return enabled provider Gmail queries."""
         providers: list[dict[str, str]] = []
 
-        if getattr(config, "ENABLE_CLAUDE_EMAILS", True):
+        claude_enabled = (
+            self.admin_state.is_provider_enabled("claude")
+            if self.admin_state
+            else getattr(config, "ENABLE_CLAUDE_EMAILS", True)
+        )
+        openai_enabled = (
+            self.admin_state.is_provider_enabled("openai")
+            if self.admin_state
+            else getattr(config, "ENABLE_OPENAI_EMAILS", True)
+        )
+
+        if claude_enabled:
             providers.append(
                 {
                     "id": "claude",
@@ -78,7 +91,7 @@ class GmailMonitor:
                 }
             )
 
-        if getattr(config, "ENABLE_OPENAI_EMAILS", True):
+        if openai_enabled:
             openai_query = getattr(config, "OPENAI_GMAIL_QUERY", DEFAULT_OPENAI_GMAIL_QUERY)
             if openai_query:
                 providers.append(

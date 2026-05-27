@@ -1,5 +1,6 @@
 import logging
 from datetime import datetime
+from pathlib import Path
 from typing import Any
 
 from telegram import Bot
@@ -173,3 +174,22 @@ class TelegramNotifier:
             f"{t('waiting_for_emails')}"
         )
         await self._broadcast(message, log_success=False)
+
+    async def send_custom_message(self, user_id: int, message: str) -> bool:
+        """Send one custom message to a specific user."""
+        try:
+            await self.bot.send_message(chat_id=user_id, text=message)
+            return True
+        except TelegramError as e:
+            logger.error(t("msg_send_error", user_id=user_id, error=e))
+            return False
+
+    async def send_custom_image(self, user_id: int, image_path: Path, caption: str) -> bool:
+        """Send one image with caption to a specific user."""
+        try:
+            with image_path.open("rb") as image_file:
+                await self.bot.send_photo(chat_id=user_id, photo=image_file, caption=caption)
+            return True
+        except TelegramError as e:
+            logger.error(t("msg_send_error", user_id=user_id, error=e))
+            return False

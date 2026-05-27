@@ -15,8 +15,11 @@ RUN pip install --no-cache-dir -r requirements.txt
 COPY main.py .
 COPY gmail_monitor.py .
 COPY telegram_bot.py .
+COPY telegram_admin.py .
+COPY admin_state.py .
 COPY i18n.py .
 COPY config.py .
+COPY assets ./assets
 
 # Create non-root user for security
 RUN useradd -m -u 1000 botuser && chown -R botuser:botuser /app
