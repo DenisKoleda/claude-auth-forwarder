@@ -10,8 +10,16 @@ GMAIL_CREDENTIALS_FILE = "credentials.json"
 GMAIL_TOKEN_FILE = "token.json"  # nosec B105
 GMAIL_SCOPES = ["https://www.googleapis.com/auth/gmail.modify"]
 
-# Filter for Claude/Anthropic emails
-GMAIL_QUERY = 'from:anthropic.com (subject:"Secure link to log in" OR subject:"payment" OR subject:"unsuccessful" OR subject:"receipt" OR subject:"invoice" OR subject:"paused") is:unread'
+# Enable providers independently
+ENABLE_CLAUDE_EMAILS = True
+ENABLE_OPENAI_EMAILS = True
+
+# Filters for auth/billing emails
+CLAUDE_GMAIL_QUERY = 'from:anthropic.com (subject:"Secure link to log in" OR subject:"payment" OR subject:"unsuccessful" OR subject:"receipt" OR subject:"invoice" OR subject:"paused") is:unread'
+OPENAI_GMAIL_QUERY = '(from:openai.com OR from:tm.openai.com OR from:tm1.openai.com OR from:email.openai.com) (subject:"Your authentication code" OR subject:"Your OpenAI API account has been funded" OR subject:"Your API usage limits have increased" OR subject:"ChatGPT" OR subject:"payment" OR subject:"billing" OR subject:"receipt" OR subject:"invoice" OR subject:"plan" OR subject:"subscription") newer_than:180d is:unread'
+
+# Backward-compatible fallback. Used only if provider-specific query is missing.
+GMAIL_QUERY = CLAUDE_GMAIL_QUERY
 
 # Check interval in seconds
 CHECK_INTERVAL = 15

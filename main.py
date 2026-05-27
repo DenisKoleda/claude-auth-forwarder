@@ -42,7 +42,7 @@ async def main() -> None:
     set_language(lang)
 
     logger.info("=" * 40)
-    logger.info("Claude Auth Code Bot")
+    logger.info("Auth Code Forwarder Bot")
     logger.info("=" * 40)
 
     validate_config()
@@ -60,7 +60,7 @@ async def main() -> None:
 
     while True:
         try:
-            emails = gmail.get_unread_claude_emails()
+            emails = gmail.get_unread_emails()
 
             if emails:
                 logger.info(t("emails_found", count=len(emails)))

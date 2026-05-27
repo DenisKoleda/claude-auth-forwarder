@@ -19,6 +19,9 @@ from i18n import t
 
 logger = logging.getLogger(__name__)
 
+DEFAULT_CLAUDE_GMAIL_QUERY = 'from:anthropic.com (subject:"Secure link to log in" OR subject:"payment" OR subject:"unsuccessful" OR subject:"receipt" OR subject:"invoice" OR subject:"paused") is:unread'
+DEFAULT_OPENAI_GMAIL_QUERY = '(from:openai.com OR from:tm.openai.com OR from:tm1.openai.com OR from:email.openai.com) (subject:"Your authentication code" OR subject:"Your OpenAI API account has been funded" OR subject:"Your API usage limits have increased" OR subject:"ChatGPT" OR subject:"payment" OR subject:"billing" OR subject:"receipt" OR subject:"invoice" OR subject:"plan" OR subject:"subscription") newer_than:180d is:unread'
+
 
 def _can_open_browser() -> bool:
     """Check if browser can be opened."""
@@ -57,6 +60,36 @@ class GmailMonitor:
     def __init__(self) -> None:
         self.service: Any = None
         self.creds: Credentials | None = None
+
+    def _enabled_providers(self) -> list[dict[str, str]]:
+        """Return enabled provider Gmail queries."""
+        providers: list[dict[str, str]] = []
+
+        if getattr(config, "ENABLE_CLAUDE_EMAILS", True):
+            providers.append(
+                {
+                    "id": "claude",
+                    "name": "Claude",
+                    "query": getattr(
+                        config,
+                        "CLAUDE_GMAIL_QUERY",
+                        getattr(config, "GMAIL_QUERY", DEFAULT_CLAUDE_GMAIL_QUERY),
+                    ),
+                }
+            )
+
+        if getattr(config, "ENABLE_OPENAI_EMAILS", True):
+            openai_query = getattr(config, "OPENAI_GMAIL_QUERY", DEFAULT_OPENAI_GMAIL_QUERY)
+            if openai_query:
+                providers.append(
+                    {
+                        "id": "openai",
+                        "name": "OpenAI",
+                        "query": openai_query,
+                    }
+                )
+
+        return providers
 
     def authenticate(self) -> None:
         """Authenticate with Gmail API."""
@@ -235,8 +268,8 @@ class GmailMonitor:
             raise TokenExpiredError(t("token_fully_expired"))
         return False
 
-    def get_unread_claude_emails(self, _retry: bool = True) -> list[dict[str, Any]]:
-        """Get unread emails from Claude/Anthropic.
+    def get_unread_emails(self, _retry: bool = True) -> list[dict[str, Any]]:
+        """Get unread auth/billing emails from enabled providers.
 
         Returns:
             list: List of emails (empty if no new ones)
@@ -245,29 +278,47 @@ class GmailMonitor:
             GmailAPIError: On API error
         """
         try:
-            results = (
-                self.service.users()
-                .messages()
-                .list(userId="me", q=config.GMAIL_QUERY, maxResults=10)
-                .execute()
-            )
-
-            messages = results.get("messages", [])
             emails = []
+            seen_message_ids: set[str] = set()
 
-            for msg in messages:
-                email_data = self._get_email_content(msg["id"])
-                if email_data:
-                    emails.append(email_data)
+            for provider in self._enabled_providers():
+                results = (
+                    self.service.users()
+                    .messages()
+                    .list(userId="me", q=provider["query"], maxResults=10)
+                    .execute()
+                )
+
+                messages = results.get("messages", [])
+
+                for msg in messages:
+                    msg_id = msg["id"]
+                    if msg_id in seen_message_ids:
+                        continue
+                    seen_message_ids.add(msg_id)
+
+                    email_data = self._get_email_content(
+                        msg_id,
+                        provider_id=provider["id"],
+                        provider_name=provider["name"],
+                    )
+                    if email_data:
+                        emails.append(email_data)
 
             return emails
         except Exception as e:
             # If token expired during API call, re-auth and retry once
             if _retry and self._reauth_if_token_error(e):
-                return self.get_unread_claude_emails(_retry=False)
+                return self.get_unread_emails(_retry=False)
             raise GmailAPIError(t("gmail_fetch_error", error=e)) from e
 
-    def _get_email_content(self, msg_id: str) -> dict[str, Any] | None:
+    def get_unread_claude_emails(self, _retry: bool = True) -> list[dict[str, Any]]:
+        """Backward-compatible alias for the old main loop."""
+        return self.get_unread_emails(_retry=_retry)
+
+    def _get_email_content(
+        self, msg_id: str, provider_id: str = "claude", provider_name: str = "Claude"
+    ) -> dict[str, Any] | None:
         """Get email content."""
         try:
             message = (
@@ -279,14 +330,19 @@ class GmailMonitor:
             sender = self._get_header(headers, "from", t("unknown_sender"))
 
             body = self._extract_body(message["payload"])
-            auth_data = self._extract_auth_data(body)
+            auth_data = self._extract_auth_data(body, provider_id, provider_name)
             payment_data = None
 
             if not auth_data:
-                payment_data = self._classify_payment_email(body, subject)
+                payment_data = self._classify_payment_email(body, subject, provider_id)
+                if payment_data:
+                    payment_data["provider"] = provider_id
+                    payment_data["provider_name"] = provider_name
 
             return {
                 "id": msg_id,
+                "provider": provider_id,
+                "provider_name": provider_name,
                 "subject": subject,
                 "from": sender,
                 "body": body,
@@ -344,37 +400,62 @@ class GmailMonitor:
         text = re.sub(r"\n{3,}", "\n\n", text)
         return text.strip()
 
-    def _extract_auth_data(self, body: str) -> dict[str, str] | None:
+    def _extract_auth_data(
+        self, body: str, provider_id: str, provider_name: str
+    ) -> dict[str, str] | None:
         """Extract auth link or code from email body."""
-        # Links are extracted from raw HTML (they're in href attributes)
-        link_patterns = [
-            # Mobile link first (more specific: has ?client= before #)
-            ("mobile_link", r'https://claude\.ai/magic-link\?client=[^#]+#[^\s"<>]+', 0),
-            # Desktop link: magic-link#token
-            ("link", r'https://claude\.ai/magic-link#[^\s"<>]+', 0),
-        ]
+        if provider_id == "claude":
+            # Links are extracted from raw HTML (they're in href attributes)
+            link_patterns = [
+                # Mobile link first (more specific: has ?client= before #)
+                ("mobile_link", r'https://claude\.ai/magic-link\?client=[^#]+#[^\s"<>]+', 0),
+                # Desktop link: magic-link#token
+                ("link", r'https://claude\.ai/magic-link#[^\s"<>]+', 0),
+            ]
 
-        for auth_type, pattern, group in link_patterns:
-            match = re.search(pattern, body, re.IGNORECASE)
-            if match:
-                return {"type": auth_type, "value": match.group(group)}
+            for auth_type, pattern, group in link_patterns:
+                match = re.search(pattern, body, re.IGNORECASE)
+                if match:
+                    return {
+                        "type": auth_type,
+                        "value": match.group(group),
+                        "provider": provider_id,
+                        "provider_name": provider_name,
+                    }
 
         # Codes are extracted from stripped text to avoid CSS color false positives
         clean_text = self._strip_html(body)
-        code_patterns = [
-            ("code", r"(?:code|код|verification|pin)[:\s]+(\d{4,8})", 1),
-            ("code", r"(?<!\#)\b(\d{6})\b", 1),
-        ]
+        if provider_id == "openai":
+            code_patterns = [
+                ("code", r"following code to help verify your identity:\s*(\d{4,8})", 1),
+                ("code", r"(?:authentication|verification)\s+code[:\s]+(\d{4,8})", 1),
+                ("code", r"(?<!\#)\b(\d{6})\b", 1),
+            ]
+        else:
+            code_patterns = [
+                ("code", r"(?:code|код|verification|pin)[:\s]+(\d{4,8})", 1),
+                ("code", r"(?<!\#)\b(\d{6})\b", 1),
+            ]
 
         for auth_type, pattern, group in code_patterns:
             match = re.search(pattern, clean_text, re.IGNORECASE)
             if match:
-                return {"type": auth_type, "value": match.group(group)}
+                return {
+                    "type": auth_type,
+                    "value": match.group(group),
+                    "provider": provider_id,
+                    "provider_name": provider_name,
+                }
 
         return None
 
-    def _classify_payment_email(self, body: str, subject: str) -> dict[str, str] | None:
+    def _classify_payment_email(
+        self, body: str, subject: str, provider_id: str
+    ) -> dict[str, str] | None:
         """Detect payment-related emails and extract relevant fields."""
+        if provider_id == "openai":
+            return self._classify_openai_email(body, subject)
+
         subject_lower = subject.lower()
         if "receipt" in subject_lower or "invoice" in subject_lower:
             return self._extract_payment_success(body, subject)
@@ -382,6 +463,85 @@ class GmailMonitor:
             return {"type": "subscription_paused"}
         if "payment" in subject_lower or "unsuccessful" in subject_lower:
             return self._extract_payment_failed(body, subject)
+        return None
+
+    def _extract_amount(self, text: str) -> str:
+        amount_match = re.search(r"(?:[$€£]\s?[\d,.]+|[\d,.]+\s?(?:USD|EUR|GBP))", text)
+        return amount_match.group(0).strip() if amount_match else ""
+
+    def _extract_card_last4(self, text: str) -> str:
+        card_match = re.search(
+            r"(?:ending in|оканчивающ\S*|Visa[-\s]|Mastercard[-\s]|card[-\s])\s*(\d{4})",
+            text,
+            re.IGNORECASE,
+        )
+        return card_match.group(1) if card_match else "****"
+
+    def _extract_openai_plan(self, text: str) -> str:
+        plan_match = re.search(r"\b(ChatGPT\s+(?:Plus|Pro|Team|Enterprise))\b", text, re.I)
+        return plan_match.group(1) if plan_match else "ChatGPT"
+
+    def _classify_openai_email(self, body: str, subject: str) -> dict[str, str] | None:
+        """Detect OpenAI auth-adjacent billing/subscription emails."""
+        clean_text = self._strip_html(body) if "<" in body else body
+        subject_lower = subject.lower()
+        clean_lower = clean_text.lower()
+
+        if "account has been funded" in subject_lower:
+            amount = self._extract_amount(clean_text)
+            return {
+                "type": "openai_api_funded",
+                "amount": amount or t("unknown_amount"),
+                "card_last4": self._extract_card_last4(clean_text),
+            }
+
+        if "usage limits have increased" in subject_lower:
+            return {"type": "openai_usage_limits_increased"}
+
+        if "не будет продлен" in subject_lower or "not be renewed" in subject_lower:
+            period_match = re.search(r"периода\s+([^.\n]+)", clean_text, re.IGNORECASE) or re.search(
+                r"(?:до конца расчетного периода|until)\s+([^.\n]+)",
+                clean_text,
+                re.IGNORECASE,
+            )
+            return {
+                "type": "subscription_cancel_pending",
+                "plan": self._extract_openai_plan(clean_text),
+                "period": period_match.group(1).strip() if period_match else "",
+            }
+
+        if "новый план" in subject_lower or "new plan" in subject_lower:
+            return {
+                "type": "subscription_started",
+                "plan": self._extract_openai_plan(clean_text),
+                "amount": self._extract_amount(clean_text),
+                "card_last4": self._extract_card_last4(clean_text),
+            }
+
+        if (
+            "не потеряйте доступ" in subject_lower
+            or "не был проведен" in clean_lower
+            or "failed" in clean_lower
+        ):
+            amount = self._extract_amount(clean_text)
+            return {
+                "type": "payment_failed",
+                "amount": amount or t("unknown_amount"),
+                "card_last4": self._extract_card_last4(clean_text),
+            }
+
+        if any(word in subject_lower for word in ("payment", "billing", "receipt", "invoice")):
+            amount = self._extract_amount(clean_text)
+            if amount:
+                return {
+                    "type": "payment_success",
+                    "amount": amount,
+                    "plan": self._extract_openai_plan(clean_text),
+                    "period": "",
+                    "card_last4": self._extract_card_last4(clean_text),
+                    "receipt_number": "",
+                }
+
         return None
 
     def _extract_payment_failed(self, body: str, subject: str) -> dict[str, str] | None:

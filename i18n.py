@@ -78,16 +78,16 @@ MESSAGES: dict[str, dict[str, str]] = {
         "ru": "Ошибка отправки пользователю {user_id}: {error}",
     },
     "auth_link_header": {
-        "en": "🔐 Claude login link",
-        "ru": "🔐 Ссылка для входа в Claude",
+        "en": "🔐 {provider} login link",
+        "ru": "🔐 Ссылка для входа в {provider}",
     },
     "auth_mobile_link_header": {
-        "en": "📱 Claude mobile login link",
-        "ru": "📱 Ссылка для входа в Claude (мобильный)",
+        "en": "📱 {provider} mobile login link",
+        "ru": "📱 Ссылка для входа в {provider} (мобильный)",
     },
     "auth_code_header": {
-        "en": "🔐 Claude authorization code",
-        "ru": "🔐 Код авторизации Claude",
+        "en": "🔐 {provider} authorization code",
+        "ru": "🔐 Код авторизации {provider}",
     },
     "time_label": {
         "en": "Time",
@@ -98,8 +98,8 @@ MESSAGES: dict[str, dict[str, str]] = {
         "ru": "Код",
     },
     "new_email_header": {
-        "en": "📧 New email from Claude/Anthropic",
-        "ru": "📧 Новое письмо от Claude/Anthropic",
+        "en": "📧 New email from {provider}",
+        "ru": "📧 Новое письмо от {provider}",
     },
     "subject_label": {
         "en": "Subject",
@@ -114,16 +114,16 @@ MESSAGES: dict[str, dict[str, str]] = {
         "ru": "Не удалось извлечь код/ссылку. Проверьте почту вручную.",
     },
     "payment_failed_header": {
-        "en": "💳 Payment to Anthropic failed",
-        "ru": "💳 Оплата Anthropic не прошла",
+        "en": "💳 Payment to {provider} failed",
+        "ru": "💳 Оплата {provider} не прошла",
     },
     "payment_success_header": {
-        "en": "✅ Payment to Anthropic successful",
-        "ru": "✅ Оплата Anthropic прошла",
+        "en": "✅ Payment to {provider} successful",
+        "ru": "✅ Оплата {provider} прошла",
     },
     "subscription_paused_header": {
-        "en": "⏸ Claude subscription paused",
-        "ru": "⏸ Подписка Claude приостановлена",
+        "en": "⏸ {provider} subscription paused",
+        "ru": "⏸ Подписка {provider} приостановлена",
     },
     "subscription_paused_body": {
         "en": "Access to paid features is paused due to a failed payment. Pay the outstanding invoice to restore access.",
@@ -132,6 +132,10 @@ MESSAGES: dict[str, dict[str, str]] = {
     "payment_amount": {
         "en": "Amount",
         "ru": "Сумма",
+    },
+    "unknown_amount": {
+        "en": "unknown",
+        "ru": "неизвестно",
     },
     "payment_card": {
         "en": "Card",
@@ -153,6 +157,30 @@ MESSAGES: dict[str, dict[str, str]] = {
         "en": "Update payment method at claude.ai/settings/billing",
         "ru": "Обновите способ оплаты: claude.ai/settings/billing",
     },
+    "openai_api_funded_header": {
+        "en": "✅ OpenAI API balance funded",
+        "ru": "✅ Баланс OpenAI API пополнен",
+    },
+    "openai_usage_limits_header": {
+        "en": "✅ OpenAI API usage limits increased",
+        "ru": "✅ Лимиты OpenAI API увеличены",
+    },
+    "openai_billing_action": {
+        "en": "Check billing: platform.openai.com/settings/organization/billing/overview",
+        "ru": "Проверьте биллинг: platform.openai.com/settings/organization/billing/overview",
+    },
+    "subscription_cancel_pending_header": {
+        "en": "⚠️ {provider} subscription will not renew",
+        "ru": "⚠️ Подписка {provider} не будет продлена",
+    },
+    "subscription_started_header": {
+        "en": "✅ {provider} subscription started",
+        "ru": "✅ Подписка {provider} оформлена",
+    },
+    "openai_subscription_action": {
+        "en": "Manage subscription: chatgpt.com/account/manage",
+        "ru": "Управление подпиской: chatgpt.com/account/manage",
+    },
     "bot_started": {
         "en": "✅ Bot started!",
         "ru": "✅ Бот запущен!",
@@ -162,8 +190,8 @@ MESSAGES: dict[str, dict[str, str]] = {
         "ru": "Проверяю почту каждые {interval} сек.",
     },
     "waiting_for_emails": {
-        "en": "Waiting for Claude/Anthropic emails...",
-        "ru": "Жду писем от Claude/Anthropic...",
+        "en": "Waiting for auth and billing emails...",
+        "ru": "Жду письма с кодами и оплатами...",
     },
     # ===== gmail_monitor.py =====
     "console_auth_info": {

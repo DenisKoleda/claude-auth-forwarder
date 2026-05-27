@@ -48,9 +48,46 @@ class TelegramNotifier:
         """Format message for any payment-related event."""
         time_line = f"{t('time_label')}: {time_now}"
         ptype = payment_data.get("type")
+        provider_name = payment_data.get("provider_name", "Claude")
+
+        if ptype == "openai_api_funded":
+            return (
+                f"{t('openai_api_funded_header')}\n\n"
+                f"{t('payment_amount')}: {payment_data['amount']}\n"
+                f"{t('payment_card')}: •••• {payment_data['card_last4']}\n"
+                f"{time_line}\n\n"
+                f"{t('openai_billing_action')}"
+            )
+
+        if ptype == "openai_usage_limits_increased":
+            return (
+                f"{t('openai_usage_limits_header')}\n\n"
+                f"{time_line}\n\n"
+                f"{t('openai_billing_action')}"
+            )
+
+        if ptype == "subscription_cancel_pending":
+            lines = [t("subscription_cancel_pending_header", provider=provider_name), ""]
+            if payment_data.get("plan"):
+                lines.append(f"{t('payment_plan')}: {payment_data['plan']}")
+            if payment_data.get("period"):
+                lines.append(f"{t('payment_period')}: {payment_data['period']}")
+            lines.append(time_line)
+            lines.extend(["", t("openai_subscription_action")])
+            return "\n".join(lines)
+
+        if ptype == "subscription_started":
+            lines = [t("subscription_started_header", provider=provider_name), ""]
+            if payment_data.get("plan"):
+                lines.append(f"{t('payment_plan')}: {payment_data['plan']}")
+            if payment_data.get("amount"):
+                lines.append(f"{t('payment_amount')}: {payment_data['amount']}")
+            lines.append(f"{t('payment_card')}: •••• {payment_data['card_last4']}")
+            lines.append(time_line)
+            return "\n".join(lines)
 
         if ptype == "payment_success":
-            lines = [t("payment_success_header"), ""]
+            lines = [t("payment_success_header", provider=provider_name), ""]
             lines.append(f"{t('payment_amount')}: {payment_data['amount']}")
             if payment_data.get("plan"):
                 lines.append(f"{t('payment_plan')}: {payment_data['plan']}")
@@ -64,7 +101,7 @@ class TelegramNotifier:
 
         if ptype == "subscription_paused":
             return (
-                f"{t('subscription_paused_header')}\n\n"
+                f"{t('subscription_paused_header', provider=provider_name)}\n\n"
                 f"{t('subscription_paused_body')}\n"
                 f"{time_line}\n\n"
                 f"{t('payment_action')}"
@@ -72,7 +109,7 @@ class TelegramNotifier:
 
         # payment_failed (default)
         return (
-            f"{t('payment_failed_header')}\n\n"
+            f"{t('payment_failed_header', provider=provider_name)}\n\n"
             f"{t('payment_amount')}: {payment_data['amount']}\n"
             f"{t('payment_card')}: •••• {payment_data['card_last4']}\n"
             f"{time_line}\n\n"
@@ -82,13 +119,14 @@ class TelegramNotifier:
     def _format_auth_message(self, auth_data: dict[str, str], time_now: str) -> str:
         """Format message with auth data."""
         time_label = t("time_label")
+        provider_name = auth_data.get("provider_name", "Claude")
         if auth_data["type"] == "link":
-            header = t("auth_link_header")
+            header = t("auth_link_header", provider=provider_name)
             return f"{header}\n\n{time_label}: {time_now}\n\n{auth_data['value']}"
         if auth_data["type"] == "mobile_link":
-            header = t("auth_mobile_link_header")
+            header = t("auth_mobile_link_header", provider=provider_name)
             return f"{header}\n\n{time_label}: {time_now}\n\n{auth_data['value']}"
-        header = t("auth_code_header")
+        header = t("auth_code_header", provider=provider_name)
         code_label = t("code_label")
         return f"{header}\n\n{code_label}: {auth_data['value']}\n{time_label}: {time_now}"
 
@@ -108,8 +146,9 @@ class TelegramNotifier:
             message = self._format_payment_message(payment_data, time_now)
         else:
             subject = email_data.get("subject", t("no_subject"))
+            provider_name = email_data.get("provider_name", "Claude/Anthropic")
             message = (
-                f"{t('new_email_header')}\n\n"
+                f"{t('new_email_header', provider=provider_name)}\n\n"
                 f"{t('subject_label')}: {subject}\n"
                 f"{t('time_label')}: {time_now}\n\n"
                 f"{t('extraction_failed')}"
