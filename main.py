@@ -60,7 +60,13 @@ async def main() -> None:
 
     logger.info(t("telegram_startup"))
     await telegram.send_startup_message()
-    await admin.start()
+
+    admin_started = False
+    try:
+        await admin.start()
+        admin_started = True
+    except Exception as e:
+        logger.exception("Telegram admin failed to start, continuing without admin UI: %s", e)
 
     logger.info(t("monitoring_start", interval=config.CHECK_INTERVAL))
 
@@ -98,7 +104,8 @@ async def main() -> None:
                 logger.exception(t("unexpected_error", error=e))
                 await asyncio.sleep(30)
     finally:
-        await admin.stop()
+        if admin_started:
+            await admin.stop()
 
 
 if __name__ == "__main__":
