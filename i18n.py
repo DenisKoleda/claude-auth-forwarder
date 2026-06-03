@@ -181,6 +181,42 @@ MESSAGES: dict[str, dict[str, str]] = {
         "en": "Manage subscription: chatgpt.com/account/manage",
         "ru": "Управление подпиской: chatgpt.com/account/manage",
     },
+    "resource_issue_header": {
+        "en": "⚠️ {provider} incident",
+        "ru": "⚠️ Инцидент {provider}",
+    },
+    "resource_resolved_header": {
+        "en": "✅ {provider} incident resolved",
+        "ru": "✅ Инцидент {provider} решён",
+    },
+    "resource_event": {
+        "en": "Event",
+        "ru": "Событие",
+    },
+    "resource_status": {
+        "en": "Status",
+        "ru": "Статус",
+    },
+    "resource_started_at": {
+        "en": "Started",
+        "ru": "Начало",
+    },
+    "resource_details": {
+        "en": "Details",
+        "ru": "Детали",
+    },
+    "resource_components": {
+        "en": "Affected components",
+        "ru": "Затронутые компоненты",
+    },
+    "resource_components_more": {
+        "en": "and {count} more",
+        "ru": "и ещё {count}",
+    },
+    "resource_status_action": {
+        "en": "Status page: status.openai.com",
+        "ru": "Статус: status.openai.com",
+    },
     "bot_started": {
         "en": "✅ Bot started!",
         "ru": "✅ Бот запущен!",

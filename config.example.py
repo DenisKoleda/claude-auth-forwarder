@@ -19,6 +19,7 @@ ADMIN_STATE_FILE = "data/admin_state.json"  # nosec B105
 # Filters for auth/billing emails
 CLAUDE_GMAIL_QUERY = 'from:anthropic.com (subject:"Secure link to log in" OR subject:"payment" OR subject:"unsuccessful" OR subject:"receipt" OR subject:"invoice" OR subject:"paused") is:unread'
 OPENAI_GMAIL_QUERY = '(from:openai.com OR from:tm.openai.com OR from:tm1.openai.com OR from:email.openai.com) (subject:"Your authentication code" OR subject:"Your OpenAI API account has been funded" OR subject:"Your API usage limits have increased" OR subject:"ChatGPT" OR subject:"payment" OR subject:"billing" OR subject:"receipt" OR subject:"invoice" OR subject:"plan" OR subject:"subscription") newer_than:180d is:unread'
+OPENAI_STATUS_GMAIL_QUERY = 'from:status.incident.io (OpenAI OR ChatGPT OR Codex OR API OR Sora OR DALL-E OR "DALL·E" OR error OR errors OR outage OR degraded OR incident) newer_than:180d is:unread'
 
 # Backward-compatible fallback. Used only if provider-specific query is missing.
 GMAIL_QUERY = CLAUDE_GMAIL_QUERY

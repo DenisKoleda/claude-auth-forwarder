@@ -130,6 +130,45 @@ class TelegramNotifier:
         code_label = t("code_label")
         return f"{header}\n\n{code_label}: {auth_data['value']}\n{time_label}: {time_now}"
 
+    def _shorten(self, text: str, limit: int = 700) -> str:
+        text = " ".join((text or "").split())
+        if len(text) <= limit:
+            return text
+        return f"{text[: limit - 3].rstrip()}..."
+
+    def _format_resource_message(self, resource_data: dict[str, Any], time_now: str) -> str:
+        """Format message for AI resource/status incidents."""
+        provider_name = resource_data.get("provider_name", "AI")
+        header_key = (
+            "resource_resolved_header"
+            if resource_data.get("resolved")
+            else "resource_issue_header"
+        )
+        lines = [t(header_key, provider=provider_name), ""]
+
+        title = resource_data.get("title")
+        if title:
+            lines.append(f"{t('subject_label')}: {title}")
+        if resource_data.get("event"):
+            lines.append(f"{t('resource_event')}: {resource_data['event']}")
+        if resource_data.get("status"):
+            lines.append(f"{t('resource_status')}: {resource_data['status']}")
+        if resource_data.get("started_at"):
+            lines.append(f"{t('resource_started_at')}: {resource_data['started_at']}")
+        if resource_data.get("details"):
+            lines.append(f"{t('resource_details')}: {self._shorten(resource_data['details'])}")
+
+        components = resource_data.get("components") or []
+        if components:
+            limit = 6
+            lines.extend(["", f"{t('resource_components')}:"])
+            lines.extend(f"- {component}" for component in components[:limit])
+            if len(components) > limit:
+                lines.append(t("resource_components_more", count=len(components) - limit))
+
+        lines.extend(["", f"{t('time_label')}: {time_now}", t("resource_status_action")])
+        return "\n".join(lines)
+
     async def send_code(self, email_data: dict[str, Any]) -> bool:
         """Send auth code/link to all allowed users.
 
@@ -138,10 +177,13 @@ class TelegramNotifier:
         """
         time_now = datetime.now().strftime("%H:%M:%S")
         auth_data = email_data.get("auth_data")
+        resource_data = email_data.get("resource_data")
         payment_data = email_data.get("payment_data")
 
         if auth_data:
             message = self._format_auth_message(auth_data, time_now)
+        elif resource_data:
+            message = self._format_resource_message(resource_data, time_now)
         elif payment_data:
             message = self._format_payment_message(payment_data, time_now)
         else:

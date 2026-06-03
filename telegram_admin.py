@@ -93,7 +93,7 @@ class TelegramAdmin:
             await self._reply_access_denied(update)
             return
 
-        text = " ".join(context.args).strip()
+        text = " ".join(context.args or []).strip()
         if not text:
             if update.message:
                 await update.message.reply_text("Использование: /broadcast текст сообщения")
@@ -133,7 +133,10 @@ class TelegramAdmin:
     async def start(self) -> None:
         await self.app.initialize()
         await self.app.start()
-        await self.app.updater.start_polling(allowed_updates=["message", "callback_query"])
+        updater = self.app.updater
+        if updater is None:
+            raise RuntimeError("Telegram admin updater is not configured")
+        await updater.start_polling(allowed_updates=["message", "callback_query"])
         logger.info("Telegram admin started for user ids: %s", sorted(self.admin_user_ids))
 
     async def stop(self) -> None:

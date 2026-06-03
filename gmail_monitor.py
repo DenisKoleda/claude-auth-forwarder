@@ -22,6 +22,18 @@ logger = logging.getLogger(__name__)
 
 DEFAULT_CLAUDE_GMAIL_QUERY = 'from:anthropic.com (subject:"Secure link to log in" OR subject:"payment" OR subject:"unsuccessful" OR subject:"receipt" OR subject:"invoice" OR subject:"paused") is:unread'
 DEFAULT_OPENAI_GMAIL_QUERY = '(from:openai.com OR from:tm.openai.com OR from:tm1.openai.com OR from:email.openai.com) (subject:"Your authentication code" OR subject:"Your OpenAI API account has been funded" OR subject:"Your API usage limits have increased" OR subject:"ChatGPT" OR subject:"payment" OR subject:"billing" OR subject:"receipt" OR subject:"invoice" OR subject:"plan" OR subject:"subscription") newer_than:180d is:unread'
+DEFAULT_OPENAI_STATUS_GMAIL_QUERY = 'from:status.incident.io (OpenAI OR ChatGPT OR Codex OR API OR Sora OR DALL-E OR "DALL·E" OR error OR errors OR outage OR degraded OR incident) newer_than:180d is:unread'
+INCIDENT_STATUSES = (
+    "Investigating",
+    "Identified",
+    "Monitoring",
+    "Resolved",
+    "Operational",
+    "Degraded performance",
+    "Partial outage",
+    "Major outage",
+    "Under maintenance",
+)
 
 
 def _can_open_browser() -> bool:
@@ -99,6 +111,17 @@ class GmailMonitor:
                         "id": "openai",
                         "name": "OpenAI",
                         "query": openai_query,
+                    }
+                )
+            openai_status_query = getattr(
+                config, "OPENAI_STATUS_GMAIL_QUERY", DEFAULT_OPENAI_STATUS_GMAIL_QUERY
+            )
+            if openai_status_query:
+                providers.append(
+                    {
+                        "id": "openai",
+                        "name": "OpenAI Status",
+                        "query": openai_status_query,
                     }
                 )
 
@@ -344,13 +367,21 @@ class GmailMonitor:
 
             body = self._extract_body(message["payload"])
             auth_data = self._extract_auth_data(body, provider_id, provider_name)
+            resource_data = None
             payment_data = None
 
             if not auth_data:
+                resource_data = self._classify_resource_email(body, subject, sender, provider_id)
+
+            if not auth_data and not resource_data:
                 payment_data = self._classify_payment_email(body, subject, provider_id)
                 if payment_data:
                     payment_data["provider"] = provider_id
                     payment_data["provider_name"] = provider_name
+
+            if resource_data:
+                resource_data["provider"] = provider_id
+                resource_data["provider_name"] = provider_name
 
             return {
                 "id": msg_id,
@@ -360,6 +391,7 @@ class GmailMonitor:
                 "from": sender,
                 "body": body,
                 "auth_data": auth_data,
+                "resource_data": resource_data,
                 "payment_data": payment_data,
             }
         except Exception as e:
@@ -478,6 +510,9 @@ class GmailMonitor:
             return self._extract_payment_failed(body, subject)
         return None
 
+    def _clean_email_text(self, body: str) -> str:
+        return self._strip_html(body) if "<" in body else body
+
     def _extract_amount(self, text: str) -> str:
         amount_match = re.search(r"(?:[$€£]\s?[\d,.]+|[\d,.]+\s?(?:USD|EUR|GBP))", text)
         return amount_match.group(0).strip() if amount_match else ""
@@ -496,7 +531,7 @@ class GmailMonitor:
 
     def _classify_openai_email(self, body: str, subject: str) -> dict[str, str] | None:
         """Detect OpenAI auth-adjacent billing/subscription emails."""
-        clean_text = self._strip_html(body) if "<" in body else body
+        clean_text = self._clean_email_text(body)
         subject_lower = subject.lower()
         clean_lower = clean_text.lower()
 
@@ -557,9 +592,103 @@ class GmailMonitor:
 
         return None
 
+    def _classify_resource_email(
+        self, body: str, subject: str, sender: str, provider_id: str
+    ) -> dict[str, Any] | None:
+        """Detect AI resource/status incident emails."""
+        if provider_id != "openai":
+            return None
+
+        sender_lower = sender.lower()
+        if "status.incident.io" not in sender_lower and "incident.io" not in sender_lower:
+            return None
+
+        status_data = self._extract_incident_status(self._clean_email_text(body), subject)
+        if not status_data:
+            return None
+
+        status_data["type"] = "resource_status"
+        return status_data
+
+    def _significant_lines(self, text: str) -> list[str]:
+        lines = []
+        for raw_line in text.replace("\r\n", "\n").replace("\r", "\n").split("\n"):
+            line = raw_line.strip()
+            if not line:
+                continue
+            if re.fullmatch(r"[-*_=\s]{3,}", line):
+                continue
+            lines.append(line)
+        return lines
+
+    def _extract_incident_components(self, lines: list[str]) -> list[str]:
+        try:
+            start = next(i for i, line in enumerate(lines) if line.lower() == "affected components:")
+        except StopIteration:
+            return []
+
+        components: list[str] = []
+        component_statuses = sorted(INCIDENT_STATUSES, key=len, reverse=True)
+        for line in lines[start + 1 :]:
+            lower = line.lower()
+            if lower.startswith(("view incident", "unsubscribe")):
+                break
+            if lower == "affected components:":
+                continue
+
+            component = line
+            for status in component_statuses:
+                suffix = f" {status}"
+                if line.lower().endswith(suffix.lower()):
+                    name = line[: -len(suffix)].strip()
+                    component = f"{name} ({status})" if name else status
+                    break
+            components.append(component)
+
+        return components
+
+    def _extract_incident_status(self, text: str, subject: str) -> dict[str, Any] | None:
+        lines = self._significant_lines(text)
+        if not lines:
+            return None
+
+        statuses = "|".join(re.escape(status) for status in INCIDENT_STATUSES)
+        status_match = re.search(
+            rf"^({statuses})\s+Started\s+(.+)$",
+            text,
+            re.IGNORECASE | re.MULTILINE,
+        )
+        if not status_match:
+            return None
+
+        status = status_match.group(1).title()
+        status_line = status_match.group(0).strip()
+        details_lines: list[str] = []
+        collecting = False
+        for line in lines:
+            if line == status_line:
+                collecting = True
+                continue
+            if not collecting:
+                continue
+            lower = line.lower()
+            if lower == "affected components:" or lower.startswith(("view incident", "unsubscribe")):
+                break
+            details_lines.append(line)
+
+        return {
+            "event": lines[0],
+            "title": subject.strip(),
+            "status": status,
+            "started_at": status_match.group(2).strip(),
+            "details": " ".join(details_lines).strip(),
+            "components": self._extract_incident_components(lines),
+            "resolved": status.lower() == "resolved",
+        }
+
     def _extract_payment_failed(self, body: str, subject: str) -> dict[str, str] | None:
         """Extract failed payment info from email."""
-        clean_text = self._strip_html(body) if "<" in body else body
+        clean_text = self._clean_email_text(body)
         amount_match = re.search(r"\$[\d,.]+", subject) or re.search(r"\$[\d,.]+", clean_text)
         card_match = re.search(r"(?:ending in|оканчивающ\S*)\s+(\d{4})", clean_text, re.IGNORECASE)
         if amount_match:
@@ -572,7 +701,7 @@ class GmailMonitor:
 
     def _extract_payment_success(self, body: str, subject: str) -> dict[str, str] | None:
         """Extract successful payment (receipt) info from email."""
-        clean_text = self._strip_html(body) if "<" in body else body
+        clean_text = self._clean_email_text(body)
         amount_match = re.search(r"\$[\d,]+(?:\.\d{2})?", clean_text)
         # "Max plan - 20x", "Pro plan", "Team plan - 5x" etc.
         plan_match = re.search(r"\b([A-Z][A-Za-z]+\s+plan(?:\s*-\s*\d+x)?)", clean_text)
