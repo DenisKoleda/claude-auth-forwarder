@@ -226,8 +226,8 @@ MESSAGES: dict[str, dict[str, str]] = {
         "ru": "Проверяю почту каждые {interval} сек.",
     },
     "waiting_for_emails": {
-        "en": "Waiting for auth and billing emails...",
-        "ru": "Жду письма с кодами и оплатами...",
+        "en": "Monitoring auth, billing and OpenAI incidents...",
+        "ru": "Слежу за кодами, оплатами и инцидентами OpenAI...",
     },
     # ===== gmail_monitor.py =====
     "console_auth_info": {
@@ -337,8 +337,8 @@ MESSAGES: dict[str, dict[str, str]] = {
         "ru": "Бот не может получить доступ к Gmail. Токен был отозван или истёк.",
     },
     "token_expired_tg_action": {
-        "en": "Restart the container to re-authorize:\ndocker-compose restart",
-        "ru": "Перезапустите контейнер для повторной авторизации:\ndocker-compose restart",
+        "en": "Open an SSH tunnel to port 8080 and complete Gmail authorization.",
+        "ru": "Откройте SSH-туннель на порт 8080 и повторно авторизуйте Gmail.",
     },
     "bot_stopped_token_expired": {
         "en": "Bot stopped: Gmail token expired. Restart to re-authorize.",

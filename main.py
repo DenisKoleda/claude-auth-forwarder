@@ -2,110 +2,138 @@ import asyncio
 import logging
 import sys
 
-import config
+import settings
 from admin_state import AdminState
 from gmail_monitor import GmailAPIError, GmailMonitor, TokenExpiredError
 from i18n import set_language, t
+from state_store import StateStore
+from status_monitor import OpenAIStatusMonitor, StatusAPIError
 from telegram_admin import TelegramAdmin
 from telegram_bot import TelegramNotifier
 
-# Setup logging
 logging.basicConfig(
-    level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s", datefmt="%H:%M:%S"
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(message)s",
+    datefmt="%Y-%m-%d %H:%M:%S",
 )
 logger = logging.getLogger(__name__)
 logging.getLogger("httpx").setLevel(logging.WARNING)
 
 
 def validate_config() -> None:
-    """Validate configuration at startup."""
     errors: list[str] = []
-
-    if not getattr(config, "TELEGRAM_BOT_TOKEN", None):
+    if not settings.TELEGRAM_BOT_TOKEN:
         errors.append(t("config_error_token"))
-
-    if not getattr(config, "ALLOWED_USER_IDS", None):
+    if not settings.ALLOWED_USER_IDS:
         errors.append(t("config_error_users"))
-
-    if not getattr(config, "GMAIL_CREDENTIALS_FILE", None):
+    if not settings.GMAIL_CREDENTIALS_FILE:
         errors.append(t("config_error_gmail"))
-
+    if (
+        settings.ENABLE_CLAUDE_EMAILS or settings.ENABLE_OPENAI_EMAILS
+    ) and not settings.AUTH_RECIPIENT_IDS:
+        errors.append("AUTH_RECIPIENT_IDS is empty")
+    if settings.ENABLE_BILLING_EMAILS and not settings.BILLING_RECIPIENT_IDS:
+        errors.append("BILLING_RECIPIENT_IDS is empty")
+    if settings.ENABLE_OPENAI_INCIDENTS and not settings.INCIDENT_RECIPIENT_IDS:
+        errors.append("INCIDENT_RECIPIENT_IDS is empty")
+    if not settings.ADMIN_USER_IDS:
+        errors.append("ADMIN_USER_IDS is empty")
     if errors:
-        logger.error(t("config_errors_header"))
-        for err in errors:
-            logger.error(f"  - {err}")
-        sys.exit(1)
+        raise RuntimeError("; ".join(errors))
 
-    logger.info(t("config_ok"))
+
+async def gmail_loop(gmail: GmailMonitor, telegram: TelegramNotifier, store: StateStore) -> None:
+    backoff = 30
+    while True:
+        store.touch_health("heartbeat", "gmail_loop")
+        try:
+            emails = await asyncio.to_thread(gmail.get_unread_emails)
+            store.touch_health("gmail", f"messages={len(emails)}")
+            backoff = 30
+            if emails:
+                logger.info(t("emails_found", count=len(emails)))
+            for email in emails:
+                if email.get("stale"):
+                    logger.warning("Skipping stale %s email %s", email.get("kind"), email["id"])
+                    await asyncio.to_thread(gmail.mark_as_read, email["id"])
+                    continue
+                if await telegram.deliver_email(email):
+                    await asyncio.to_thread(gmail.mark_as_read, email["id"])
+                else:
+                    logger.warning(t("telegram_not_sent"))
+            await asyncio.sleep(settings.CHECK_INTERVAL)
+        except TokenExpiredError as exc:
+            logger.error(str(exc))
+            await telegram.send_token_expired_message()
+            store.touch_health("gmail", "reauthentication required")
+            await asyncio.to_thread(gmail.authenticate)
+        except GmailAPIError as exc:
+            logger.error(t("gmail_api_error", error=exc))
+            await asyncio.sleep(backoff)
+            backoff = min(backoff * 2, 300)
+        except Exception as exc:
+            logger.exception(t("unexpected_error", error=exc))
+            await asyncio.sleep(backoff)
+            backoff = min(backoff * 2, 300)
+
+
+async def status_loop(monitor: OpenAIStatusMonitor, store: StateStore) -> None:
+    backoff = settings.STATUS_CHECK_INTERVAL
+    while True:
+        store.touch_health("heartbeat", "status_loop")
+        try:
+            await monitor.sync()
+            backoff = settings.STATUS_CHECK_INTERVAL
+            await asyncio.sleep(settings.STATUS_CHECK_INTERVAL)
+        except StatusAPIError as exc:
+            logger.error(str(exc))
+            await asyncio.sleep(backoff)
+            backoff = min(backoff * 2, 600)
+        except Exception as exc:
+            logger.exception("Unexpected status monitor error: %s", exc)
+            await asyncio.sleep(backoff)
+            backoff = min(backoff * 2, 600)
+
+
+async def heartbeat_loop(store: StateStore) -> None:
+    while True:
+        store.touch_health("heartbeat", "main")
+        await asyncio.sleep(15)
 
 
 async def main() -> None:
-    # Initialize language from config
-    lang = getattr(config, "LANGUAGE", "ru")
-    set_language(lang)
-
-    logger.info("=" * 40)
-    logger.info("Auth Code Forwarder Bot")
-    logger.info("=" * 40)
-
+    set_language(settings.LANGUAGE)
     validate_config()
 
+    store = StateStore(settings.STATE_DB_FILE)
     admin_state = AdminState()
-    admin = TelegramAdmin(admin_state)
+    telegram = TelegramNotifier(store)
+    admin = TelegramAdmin(admin_state, store)
     gmail = GmailMonitor(admin_state)
-    telegram = TelegramNotifier()
-
-    logger.info(t("gmail_auth_start"))
-    gmail.authenticate()
-
-    logger.info(t("telegram_startup"))
-    await telegram.send_startup_message()
+    status = OpenAIStatusMonitor(admin_state, store, telegram)
 
     admin_started = False
     try:
-        await admin.start()
-        admin_started = True
-    except Exception as e:
-        logger.exception("Telegram admin failed to start, continuing without admin UI: %s", e)
+        try:
+            await admin.start()
+            admin_started = True
+        except Exception as exc:
+            logger.exception("Telegram admin failed to start, continuing: %s", exc)
 
-    logger.info(t("monitoring_start", interval=config.CHECK_INTERVAL))
+        await telegram.send_startup_message()
+        logger.info(t("gmail_auth_start"))
+        await asyncio.to_thread(gmail.authenticate)
+        store.touch_health("gmail", "authenticated")
+        store.touch_health("openai_status", "starting")
 
-    try:
-        while True:
-            try:
-                emails = gmail.get_unread_emails()
-
-                if emails:
-                    logger.info(t("emails_found", count=len(emails)))
-
-                    for email in emails:
-                        sent = await telegram.send_code(email)
-                        if sent:
-                            gmail.mark_as_read(email["id"])
-                        else:
-                            logger.warning(t("telegram_not_sent"))
-                else:
-                    logger.debug(t("no_new_emails"))
-
-                await asyncio.sleep(config.CHECK_INTERVAL)
-
-            except TokenExpiredError as e:
-                logger.error(str(e))
-                await telegram.send_token_expired_message()
-                logger.info(t("bot_stopped_token_expired"))
-                sys.exit(1)
-
-            except GmailAPIError as e:
-                logger.error(t("gmail_api_error", error=e))
-                logger.info(t("retry_in_30"))
-                await asyncio.sleep(30)
-
-            except Exception as e:
-                logger.exception(t("unexpected_error", error=e))
-                await asyncio.sleep(30)
+        async with asyncio.TaskGroup() as tasks:
+            tasks.create_task(gmail_loop(gmail, telegram, store))
+            tasks.create_task(status_loop(status, store))
+            tasks.create_task(heartbeat_loop(store))
     finally:
         if admin_started:
             await admin.stop()
+        store.close()
 
 
 if __name__ == "__main__":

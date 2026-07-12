@@ -3,6 +3,8 @@ credentials.json
 token.json
 data/
 config.py
+.env
+secrets/
 
 # Python
 __pycache__/

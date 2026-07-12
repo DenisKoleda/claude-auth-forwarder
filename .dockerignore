@@ -26,3 +26,7 @@ docker-compose.yml
 # Credentials (mount as volume instead)
 credentials.json
 token.json
+config.py
+.env
+data/
+secrets/

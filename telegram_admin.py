@@ -1,30 +1,37 @@
 import logging
+import time
+from datetime import datetime
+from zoneinfo import ZoneInfo
 
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.ext import Application, CallbackQueryHandler, CommandHandler, ContextTypes
 from telegram.request import HTTPXRequest
 
-import config
+import settings
 from admin_state import AdminState
+from state_store import StateStore
 
 logger = logging.getLogger(__name__)
 
-PROVIDER_LABELS = {
-    "claude": "Claude",
-    "openai": "OpenAI",
+SOURCE_LABELS = {
+    "claude_auth": "Коды Claude",
+    "openai_auth": "Коды OpenAI",
+    "billing": "Платежи",
+    "incidents": "Инциденты OpenAI",
 }
 
 
 class TelegramAdmin:
-    def __init__(self, state: AdminState) -> None:
+    def __init__(self, state: AdminState, store: StateStore) -> None:
         self.state = state
-        self.admin_user_ids = set(getattr(config, "ADMIN_USER_IDS", []))
+        self.store = store
+        self.admin_user_ids = set(settings.ADMIN_USER_IDS)
         if not self.admin_user_ids:
-            self.admin_user_ids = set(getattr(config, "ALLOWED_USER_IDS", []))
+            self.admin_user_ids = set(settings.ALLOWED_USER_IDS)
 
-        builder = Application.builder().token(config.TELEGRAM_BOT_TOKEN)
-        base_url = getattr(config, "TELEGRAM_BASE_URL", "")
-        proxy_url = getattr(config, "TELEGRAM_PROXY_URL", "")
+        builder = Application.builder().token(settings.TELEGRAM_BOT_TOKEN)
+        base_url = settings.TELEGRAM_BASE_URL
+        proxy_url = settings.TELEGRAM_PROXY_URL
         if base_url:
             builder = builder.base_url(base_url)
         if proxy_url:
@@ -33,6 +40,7 @@ class TelegramAdmin:
 
         self.app = builder.build()
         self.app.add_handler(CommandHandler("admin", self._admin_command))
+        self.app.add_handler(CommandHandler("status", self._status_command))
         self.app.add_handler(CommandHandler("broadcast", self._broadcast_command))
         self.app.add_handler(CallbackQueryHandler(self._handle_callback, pattern=r"^admin:"))
 
@@ -41,22 +49,22 @@ class TelegramAdmin:
         return bool(user and user.id in self.admin_user_ids)
 
     def _status_text(self) -> str:
-        statuses = self.state.provider_statuses()
+        statuses = self.state.source_statuses()
         lines = ["Админка пересылки кодов", ""]
-        for provider_id, label in PROVIDER_LABELS.items():
-            state = "включен" if statuses[provider_id] else "выключен"
+        for source_id, label in SOURCE_LABELS.items():
+            state = "включено" if statuses[source_id] else "выключено"
             lines.append(f"{label}: {state}")
         return "\n".join(lines)
 
     def _keyboard(self) -> InlineKeyboardMarkup:
-        statuses = self.state.provider_statuses()
+        statuses = self.state.source_statuses()
         rows: list[list[InlineKeyboardButton]] = []
-        for provider_id, label in PROVIDER_LABELS.items():
-            marker = "✅" if statuses[provider_id] else "⛔"
+        for source_id, label in SOURCE_LABELS.items():
+            marker = "✅" if statuses[source_id] else "⛔"
             rows.append(
                 [
                     InlineKeyboardButton(
-                        f"{marker} {label}", callback_data=f"admin:toggle:{provider_id}"
+                        f"{marker} {label}", callback_data=f"admin:toggle:{source_id}"
                     )
                 ]
             )
@@ -70,7 +78,7 @@ class TelegramAdmin:
     async def _send_broadcast_text(self, text: str) -> tuple[int, int]:
         success = 0
         failed = 0
-        for user_id in getattr(config, "ALLOWED_USER_IDS", []):
+        for user_id in settings.ALLOWED_USER_IDS:
             try:
                 await self.app.bot.send_message(chat_id=user_id, text=text)
                 success += 1
@@ -87,6 +95,32 @@ class TelegramAdmin:
 
         if update.message:
             await update.message.reply_text(self._status_text(), reply_markup=self._keyboard())
+
+    async def _status_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        del context
+        if not self._is_admin(update):
+            await self._reply_access_denied(update)
+            return
+        snapshot = self.store.health_snapshot()
+        now = time.time()
+        lines = ["Состояние Claude Code Bot", ""]
+        for key, label in (
+            ("heartbeat", "Основной цикл"),
+            ("gmail", "Gmail"),
+            ("openai_status", "OpenAI Status"),
+        ):
+            item = snapshot.get(key)
+            if not item:
+                lines.append(f"⛔ {label}: нет данных")
+                continue
+            age = max(0, int(now - float(item["timestamp"])))
+            timestamp = datetime.fromtimestamp(
+                float(item["timestamp"]), ZoneInfo(settings.DISPLAY_TIMEZONE)
+            ).strftime("%H:%M:%S")
+            marker = "✅" if age < 300 else "⚠️"
+            lines.append(f"{marker} {label}: {timestamp}, {age} сек. назад")
+        if update.message:
+            await update.message.reply_text("\n".join(lines))
 
     async def _broadcast_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         if not self._is_admin(update):
@@ -116,15 +150,15 @@ class TelegramAdmin:
         data = query.data or ""
         parts = data.split(":")
         if len(parts) == 3 and parts[1] == "toggle":
-            provider_id = parts[2]
+            source_id = parts[2]
             try:
-                enabled = self.state.toggle_provider(provider_id)
+                enabled = self.state.toggle_source(source_id)
             except ValueError:
-                await query.answer("Неизвестный провайдер.", show_alert=True)
+                await query.answer("Неизвестный источник.", show_alert=True)
                 return
-            label = PROVIDER_LABELS.get(provider_id, provider_id)
-            await query.answer(f"{label}: {'включен' if enabled else 'выключен'}")
-            logger.info("Admin toggled %s to %s", provider_id, enabled)
+            label = SOURCE_LABELS.get(source_id, source_id)
+            await query.answer(f"{label}: {'включено' if enabled else 'выключено'}")
+            logger.info("Admin toggled %s to %s", source_id, enabled)
         else:
             await query.answer("Обновлено")
 

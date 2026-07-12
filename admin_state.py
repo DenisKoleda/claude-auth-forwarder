@@ -4,7 +4,8 @@ import threading
 from pathlib import Path
 from typing import Any
 
-import config
+import settings
+from secure_files import write_private_text
 
 logger = logging.getLogger(__name__)
 
@@ -13,15 +14,17 @@ class AdminState:
     """Persisted runtime switches controlled from Telegram admin UI."""
 
     def __init__(self) -> None:
-        self.path = Path(getattr(config, "ADMIN_STATE_FILE", "data/admin_state.json"))
+        self.path = Path(settings.ADMIN_STATE_FILE)
         self._lock = threading.RLock()
         self._state = self._load()
 
     def _default_state(self) -> dict[str, Any]:
         return {
-            "providers": {
-                "claude": bool(getattr(config, "ENABLE_CLAUDE_EMAILS", True)),
-                "openai": bool(getattr(config, "ENABLE_OPENAI_EMAILS", True)),
+            "sources": {
+                "claude_auth": settings.ENABLE_CLAUDE_EMAILS,
+                "openai_auth": settings.ENABLE_OPENAI_EMAILS,
+                "billing": settings.ENABLE_BILLING_EMAILS,
+                "incidents": settings.ENABLE_OPENAI_INCIDENTS,
             }
         }
 
@@ -36,43 +39,43 @@ class AdminState:
             logger.warning("Could not read admin state, using defaults: %s", e)
             return default_state
 
-        providers = loaded.get("providers", {})
-        default_state["providers"].update(
-            {
-                "claude": bool(providers.get("claude", default_state["providers"]["claude"])),
-                "openai": bool(providers.get("openai", default_state["providers"]["openai"])),
-            }
-        )
+        sources = loaded.get("sources", {})
+        legacy = loaded.get("providers", {})
+        if "claude" in legacy:
+            sources.setdefault("claude_auth", legacy["claude"])
+        if "openai" in legacy:
+            sources.setdefault("openai_auth", legacy["openai"])
+        for source_id in default_state["sources"]:
+            if source_id in sources:
+                default_state["sources"][source_id] = bool(sources[source_id])
         return default_state
 
     def _save_locked(self) -> None:
         self.path.parent.mkdir(parents=True, exist_ok=True)
-        temp_path = self.path.with_suffix(".tmp")
-        temp_path.write_text(json.dumps(self._state, indent=2, sort_keys=True))
-        temp_path.replace(self.path)
+        write_private_text(self.path, json.dumps(self._state, indent=2, sort_keys=True))
 
-    def is_provider_enabled(self, provider_id: str) -> bool:
+    def is_source_enabled(self, source_id: str) -> bool:
         with self._lock:
-            return bool(self._state.get("providers", {}).get(provider_id, False))
+            return bool(self._state.get("sources", {}).get(source_id, False))
 
-    def set_provider_enabled(self, provider_id: str, enabled: bool) -> bool:
-        if provider_id not in {"claude", "openai"}:
-            raise ValueError(f"Unknown provider: {provider_id}")
+    def set_source_enabled(self, source_id: str, enabled: bool) -> bool:
+        if source_id not in {"claude_auth", "openai_auth", "billing", "incidents"}:
+            raise ValueError(f"Unknown source: {source_id}")
 
         with self._lock:
-            self._state.setdefault("providers", {})[provider_id] = enabled
+            self._state.setdefault("sources", {})[source_id] = enabled
             self._save_locked()
             return enabled
 
-    def toggle_provider(self, provider_id: str) -> bool:
+    def toggle_source(self, source_id: str) -> bool:
         with self._lock:
-            enabled = not self.is_provider_enabled(provider_id)
-            return self.set_provider_enabled(provider_id, enabled)
+            enabled = not self.is_source_enabled(source_id)
+            return self.set_source_enabled(source_id, enabled)
 
-    def provider_statuses(self) -> dict[str, bool]:
+    def source_statuses(self) -> dict[str, bool]:
         with self._lock:
-            providers = self._state.get("providers", {})
+            sources = self._state.get("sources", {})
             return {
-                "claude": bool(providers.get("claude", False)),
-                "openai": bool(providers.get("openai", False)),
+                source_id: bool(sources.get(source_id, False))
+                for source_id in ("claude_auth", "openai_auth", "billing", "incidents")
             }

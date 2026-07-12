@@ -1,180 +1,111 @@
-<p align="center">
-  <img src="https://img.shields.io/badge/Python-3.10+-3776AB?style=for-the-badge&logo=python&logoColor=white" alt="Python">
-  <img src="https://img.shields.io/badge/Telegram-Bot-26A5E4?style=for-the-badge&logo=telegram&logoColor=white" alt="Telegram">
-  <img src="https://img.shields.io/badge/Gmail-API-EA4335?style=for-the-badge&logo=gmail&logoColor=white" alt="Gmail">
-  <img src="https://img.shields.io/badge/Docker-Ready-2496ED?style=for-the-badge&logo=docker&logoColor=white" alt="Docker">
-</p>
+# Claude/OpenAI Auth Forwarder
 
-<h1 align="center">Claude Auth Forwarder</h1>
+Telegram-бот для безопасной пересылки кодов входа Claude/OpenAI, уведомлений об оплате и инцидентов OpenAI Status.
 
-<p align="center">
-  <b>Telegram bot that forwards Claude.ai authentication links from your Gmail inbox</b>
-</p>
+## Возможности
 
-<p align="center">
-  <img src="https://img.shields.io/github/license/deniskoleda/claude-auth-forwarder?style=flat-square" alt="License">
-  <img src="https://img.shields.io/github/stars/deniskoleda/claude-auth-forwarder?style=flat-square" alt="Stars">
-  <img src="https://img.shields.io/github/issues/deniskoleda/claude-auth-forwarder?style=flat-square" alt="Issues">
-  <img src="https://img.shields.io/badge/PRs-welcome-brightgreen.svg?style=flat-square" alt="PRs Welcome">
-</p>
+- Gmail OAuth без пароля от почты;
+- отдельные получатели кодов, платежей и инцидентов;
+- TTL для кодов входа: старые письма не пересылаются;
+- повтор доставки отдельно для каждого получателя;
+- один обновляемый пост на каждый инцидент OpenAI;
+- `/admin` для независимого включения источников;
+- `/status` с реальным состоянием Gmail, OpenAI Status и основного цикла;
+- Docker secrets для Telegram-токена и прокси;
+- healthcheck по фактическому прогрессу приложения.
 
----
+## Архитектура
 
-## Features
-
-- **Instant notifications** - Get Claude auth links in Telegram within seconds
-- **Magic link extraction** - Automatically extracts login links from emails
-- **Code support** - Also supports 6-digit verification codes
-- **Multi-user** - Send notifications to multiple Telegram users
-- **Docker ready** - Easy deployment with Docker Compose
-- **Secure** - Uses OAuth 2.0 for Gmail API access
-
-## How it works
-
-```
-┌─────────────┐     ┌──────────────┐     ┌──────────────┐
-│   Gmail     │────▶│   Bot        │────▶│   Telegram   │
-│  (OAuth)    │     │  (polling)   │     │   (you)      │
-└─────────────┘     └──────────────┘     └──────────────┘
+```text
+Gmail API ── auth/billing ──┐
+                            ├── SQLite delivery state ── Telegram
+OpenAI Status JSON API ─────┘
 ```
 
-1. Bot monitors your Gmail inbox every 15 seconds
-2. When a new email from Anthropic arrives, it extracts the magic link
-3. Sends the link to your Telegram instantly
-4. Marks the email as read
+Gmail опрашивается каждые 15 секунд. OpenAI Status — каждые 60 секунд. Обновления одного инцидента редактируют уже отправленное Telegram-сообщение.
 
-## Quick Start
+## Настройка
 
-### Prerequisites
+1. Скопируйте конфигурацию:
 
-- Python 3.10+
-- Gmail account
-- Telegram Bot Token (from [@BotFather](https://t.me/BotFather))
-- Google Cloud Project with Gmail API enabled
+   ```bash
+   cp .env.example .env
+   chmod 600 .env
+   ```
 
-### Installation
+2. Укажите Telegram ID в `.env`. Получателей можно разделить:
 
-**1. Clone the repository**
+   ```dotenv
+   AUTH_RECIPIENT_IDS=123456789
+   BILLING_RECIPIENT_IDS=123456789,987654321
+   INCIDENT_RECIPIENT_IDS=123456789,987654321
+   ADMIN_USER_IDS=123456789
+   ```
+
+3. Создайте файлы секретов:
+
+   ```bash
+   mkdir -p secrets
+   printf '%s' 'BOT_TOKEN' > secrets/telegram_bot_token
+   printf '%s' 'http://user:password@proxy:8080' > secrets/telegram_proxy_url
+   chmod 600 secrets/*
+   ```
+
+   Если прокси не нужен, оставьте `secrets/telegram_proxy_url` пустым.
+
+4. Положите Google OAuth Desktop credentials в `credentials.json` и ограничьте права:
+
+   ```bash
+   chmod 600 credentials.json
+   ```
+
+5. Запустите:
+
+   ```bash
+   docker compose up -d --build
+   docker compose logs -f
+   ```
+
+## Первая авторизация Gmail
+
+OAuth-порт публикуется только на `127.0.0.1` сервера. Для удалённого сервера откройте туннель:
 
 ```bash
-git clone https://github.com/deniskoleda/claude-auth-forwarder.git
-cd claude-auth-forwarder
+ssh -L 8080:127.0.0.1:8080 user@server
 ```
 
-**2. Set up virtual environment**
+После этого откройте `http://localhost:8080`. Callback принимается только с корректным OAuth `state`.
+
+Токен Gmail сохраняется в `data/token.json` с правами `0600`.
+
+## Команды Telegram
+
+- `/admin` — независимо включить коды Claude, коды OpenAI, платежи и инциденты;
+- `/status` — время последнего успешного Gmail/Status poll и heartbeat;
+- `/broadcast текст` — сообщение всем пользователям из `ALLOWED_USER_IDS`.
+
+## Проверки
 
 ```bash
-python3 -m venv venv
-source venv/bin/activate  # Linux/macOS
-# or
-venv\Scripts\activate     # Windows
+pytest -q
+ruff check .
+ruff format --check .
+mypy . --ignore-missing-imports
+bandit -q main.py gmail_monitor.py telegram_bot.py telegram_admin.py \
+  admin_state.py settings.py secure_files.py state_store.py status_monitor.py healthcheck.py
+pip-audit -r requirements.txt
+docker compose config
+docker build -t claude-auth-forwarder:test .
 ```
 
-**3. Install dependencies**
+## Данные и секреты
 
-```bash
-pip install -r requirements.txt
-```
+В Git и Docker build context не попадают:
 
-**4. Configure**
+- `.env`;
+- `config.py` от старых установок;
+- `credentials.json`;
+- `data/`;
+- `secrets/`.
 
-Create `credentials.json` from Google Cloud Console:
-1. Go to [Google Cloud Console](https://console.cloud.google.com)
-2. Create a new project
-3. Enable Gmail API
-4. Create OAuth 2.0 credentials (Desktop App)
-5. Download JSON and rename to `credentials.json`
-
-Edit `config.py`:
-```python
-TELEGRAM_BOT_TOKEN = "your_bot_token"
-ALLOWED_USER_IDS = [your_telegram_id]
-```
-
-**5. Run**
-
-```bash
-python main.py
-```
-
-On first run, a browser window will open for Gmail authorization.
-
-## Docker Deployment
-
-### Using Docker Compose (Recommended)
-
-```bash
-# Build and run
-docker-compose up -d
-
-# View logs
-docker-compose logs -f
-
-# Stop
-docker-compose down
-```
-
-### Using Docker directly
-
-```bash
-# Build
-docker build -t claude-auth-forwarder .
-
-# Run
-docker run -d \
-  --name claude-auth-bot \
-  -v $(pwd)/credentials.json:/app/credentials.json \
-  -v $(pwd)/token.json:/app/token.json \
-  claude-auth-forwarder
-```
-
-> **Note:** You need to run locally first to generate `token.json`, then copy it to your server.
-
-## Configuration
-
-| Variable | Description | Default |
-|----------|-------------|---------|
-| `TELEGRAM_BOT_TOKEN` | Your Telegram bot token | - |
-| `ALLOWED_USER_IDS` | List of Telegram user IDs | - |
-| `CHECK_INTERVAL` | Email check interval (seconds) | `15` |
-| `GMAIL_QUERY` | Gmail search filter | `from:anthropic.com OR from:claude.ai is:unread` |
-
-## Getting Your Telegram ID
-
-Send a message to [@userinfobot](https://t.me/userinfobot) - it will reply with your ID.
-
-## Project Structure
-
-```
-claude-auth-forwarder/
-├── main.py              # Entry point
-├── gmail_monitor.py     # Gmail API integration
-├── telegram_bot.py      # Telegram notifications
-├── config.py            # Configuration
-├── credentials.json     # Google OAuth credentials
-├── token.json           # Saved Gmail token (auto-generated)
-├── requirements.txt     # Python dependencies
-├── Dockerfile           # Docker image
-├── docker-compose.yml   # Docker Compose config
-└── README.md
-```
-
-## Security Notes
-
-- Never commit `credentials.json` or `token.json` to git
-- Use environment variables for sensitive data in production
-- The bot only reads emails, it cannot send or delete them
-
-## Contributing
-
-Pull requests are welcome! For major changes, please open an issue first.
-
-## License
-
-[MIT](LICENSE)
-
----
-
-<p align="center">
-  Made with Claude Code
-</p>
+После перехода со старой версии удалите legacy `config.py` с сервера только после проверки нового контейнера.

@@ -5,6 +5,7 @@ import logging
 import os
 import re
 import threading
+import time
 from typing import Any
 from urllib.parse import parse_qs, urlparse
 
@@ -14,26 +15,20 @@ from google.oauth2.credentials import Credentials
 from google_auth_oauthlib.flow import InstalledAppFlow
 from googleapiclient.discovery import build
 
-import config
+import settings
 from admin_state import AdminState
 from i18n import t
+from secure_files import write_private_text
 
 logger = logging.getLogger(__name__)
 
-DEFAULT_CLAUDE_GMAIL_QUERY = 'from:anthropic.com (subject:"Secure link to log in" OR subject:"payment" OR subject:"unsuccessful" OR subject:"receipt" OR subject:"invoice" OR subject:"paused") is:unread'
-DEFAULT_OPENAI_GMAIL_QUERY = '(from:openai.com OR from:tm.openai.com OR from:tm1.openai.com OR from:email.openai.com) (subject:"Your authentication code" OR subject:"Your OpenAI API account has been funded" OR subject:"Your API usage limits have increased" OR subject:"ChatGPT" OR subject:"payment" OR subject:"billing" OR subject:"receipt" OR subject:"invoice" OR subject:"plan" OR subject:"subscription") newer_than:180d is:unread'
-DEFAULT_OPENAI_STATUS_GMAIL_QUERY = 'from:status.incident.io (OpenAI OR ChatGPT OR Codex OR API OR Sora OR DALL-E OR "DALL·E" OR error OR errors OR outage OR degraded OR incident) newer_than:180d is:unread'
-INCIDENT_STATUSES = (
-    "Investigating",
-    "Identified",
-    "Monitoring",
-    "Resolved",
-    "Operational",
-    "Degraded performance",
-    "Partial outage",
-    "Major outage",
-    "Under maintenance",
-)
+
+def extract_oauth_code(callback_url: str, expected_state: str) -> str | None:
+    """Return the OAuth code only when the callback state matches."""
+    query = parse_qs(urlparse(callback_url).query)
+    code = query.get("code", [None])[0]
+    state = query.get("state", [None])[0]
+    return code if code and state == expected_state else None
 
 
 def _can_open_browser() -> bool:
@@ -79,59 +74,59 @@ class GmailMonitor:
         """Return enabled provider Gmail queries."""
         providers: list[dict[str, str]] = []
 
-        claude_enabled = (
-            self.admin_state.is_provider_enabled("claude")
+        source_enabled = (
+            self.admin_state.is_source_enabled
             if self.admin_state
-            else getattr(config, "ENABLE_CLAUDE_EMAILS", True)
-        )
-        openai_enabled = (
-            self.admin_state.is_provider_enabled("openai")
-            if self.admin_state
-            else getattr(config, "ENABLE_OPENAI_EMAILS", True)
+            else lambda source: {
+                "claude_auth": settings.ENABLE_CLAUDE_EMAILS,
+                "openai_auth": settings.ENABLE_OPENAI_EMAILS,
+                "billing": settings.ENABLE_BILLING_EMAILS,
+            }.get(source, False)
         )
 
-        if claude_enabled:
+        if source_enabled("claude_auth"):
             providers.append(
                 {
                     "id": "claude",
                     "name": "Claude",
-                    "query": getattr(
-                        config,
-                        "CLAUDE_GMAIL_QUERY",
-                        getattr(config, "GMAIL_QUERY", DEFAULT_CLAUDE_GMAIL_QUERY),
-                    ),
+                    "kind": "auth",
+                    "query": settings.CLAUDE_AUTH_GMAIL_QUERY,
                 }
             )
-
-        if openai_enabled:
-            openai_query = getattr(config, "OPENAI_GMAIL_QUERY", DEFAULT_OPENAI_GMAIL_QUERY)
-            if openai_query:
-                providers.append(
+        if source_enabled("openai_auth"):
+            providers.append(
+                {
+                    "id": "openai",
+                    "name": "OpenAI",
+                    "kind": "auth",
+                    "query": settings.OPENAI_AUTH_GMAIL_QUERY,
+                }
+            )
+        if source_enabled("billing"):
+            providers.extend(
+                [
+                    {
+                        "id": "claude",
+                        "name": "Claude",
+                        "kind": "billing",
+                        "query": settings.CLAUDE_BILLING_GMAIL_QUERY,
+                    },
                     {
                         "id": "openai",
                         "name": "OpenAI",
-                        "query": openai_query,
-                    }
-                )
-            openai_status_query = getattr(
-                config, "OPENAI_STATUS_GMAIL_QUERY", DEFAULT_OPENAI_STATUS_GMAIL_QUERY
+                        "kind": "billing",
+                        "query": settings.OPENAI_BILLING_GMAIL_QUERY,
+                    },
+                ]
             )
-            if openai_status_query:
-                providers.append(
-                    {
-                        "id": "openai",
-                        "name": "OpenAI Status",
-                        "query": openai_status_query,
-                    }
-                )
 
         return providers
 
     def authenticate(self) -> None:
         """Authenticate with Gmail API."""
-        if os.path.exists(config.GMAIL_TOKEN_FILE):
+        if os.path.exists(settings.GMAIL_TOKEN_FILE):
             self.creds = Credentials.from_authorized_user_file(
-                config.GMAIL_TOKEN_FILE, config.GMAIL_SCOPES
+                settings.GMAIL_TOKEN_FILE, settings.GMAIL_SCOPES
             )
 
         if not self.creds or not self.creds.valid:
@@ -141,16 +136,16 @@ class GmailMonitor:
                 except RefreshError as e:
                     # Token revoked or expired - need full re-auth
                     logger.warning(t("token_refresh_failed", error=e))
-                    if os.path.exists(config.GMAIL_TOKEN_FILE):
-                        os.remove(config.GMAIL_TOKEN_FILE)
+                    if os.path.exists(settings.GMAIL_TOKEN_FILE):
+                        os.remove(settings.GMAIL_TOKEN_FILE)
                         logger.info(t("token_removed"))
                     self.creds = None
 
             if not self.creds or not self.creds.valid:
                 flow = InstalledAppFlow.from_client_secrets_file(
-                    config.GMAIL_CREDENTIALS_FILE, config.GMAIL_SCOPES
+                    settings.GMAIL_CREDENTIALS_FILE, settings.GMAIL_SCOPES
                 )
-                auth_port = int(os.environ.get("OAUTH_PORT", 8080))
+                auth_port = settings.OAUTH_PORT
 
                 if _can_open_browser():
                     print(f"\n{'=' * 60}")
@@ -164,8 +159,7 @@ class GmailMonitor:
                 else:
                     self.creds = self._run_manual_auth_flow(flow, auth_port)
 
-            with open(config.GMAIL_TOKEN_FILE, "w") as token:
-                token.write(self.creds.to_json())
+            write_private_text(settings.GMAIL_TOKEN_FILE, self.creds.to_json())
 
         self.service = build("gmail", "v1", credentials=self.creds, cache_discovery=False)
         logger.info(t("gmail_auth_success"))
@@ -173,24 +167,23 @@ class GmailMonitor:
     def _run_manual_auth_flow(self, flow: InstalledAppFlow, port: int) -> Credentials:
         """Run OAuth flow via web page for headless environments (Docker/SSH/VPS).
 
-        Starts an HTTP server on 0.0.0.0:{port} that:
+        Starts a temporary HTTP server on the configured bind host that:
         - Shows auth link and a form to paste the redirect URL at GET /
         - Handles direct OAuth callback if redirect reaches the server (port forwarding)
         - Handles form submission with pasted redirect URL at POST /
         """
         flow.redirect_uri = f"http://localhost:{port}/"
-        auth_url, _ = flow.authorization_url(access_type="offline", prompt="consent")
+        auth_url, expected_state = flow.authorization_url(access_type="offline", prompt="consent")
 
         auth_code_result: list[str | None] = [None]
         server_ready = threading.Event()
 
         class OAuthHandler(http.server.BaseHTTPRequestHandler):
             def do_GET(self) -> None:
-                parsed = urlparse(self.path)
-                params = parse_qs(parsed.query)
+                code = extract_oauth_code(self.path, expected_state)
 
-                if "code" in params:
-                    auth_code_result[0] = params["code"][0]
+                if code:
+                    auth_code_result[0] = code
                     self.send_response(200)
                     self.send_header("Content-Type", "text/html; charset=utf-8")
                     self.end_headers()
@@ -227,8 +220,7 @@ class GmailMonitor:
                 body = self.rfile.read(content_length).decode()
                 form_data = parse_qs(body)
                 pasted_url = form_data.get("url", [""])[0]
-                parsed = urlparse(pasted_url)
-                code = parse_qs(parsed.query).get("code", [None])[0]
+                code = extract_oauth_code(pasted_url, expected_state)
 
                 if code:
                     auth_code_result[0] = code
@@ -249,11 +241,10 @@ class GmailMonitor:
             def log_message(self, format: str, *args: Any) -> None:
                 logger.debug("OAuth HTTP: %s", format % args)
 
-        server = http.server.HTTPServer(("0.0.0.0", port), OAuthHandler)
+        server = http.server.HTTPServer((settings.OAUTH_BIND_HOST, port), OAuthHandler)
         server.timeout = 1
 
-        external_host = os.environ.get("OAUTH_EXTERNAL_HOST", "")
-        hint_url = f"http://{external_host}" if external_host else f"http://YOUR_SERVER_IP:{port}"
+        hint_url = f"http://localhost:{port}"
 
         logger.info(t("auth_server_started", port=port))
         print(f"\n{'=' * 60}")
@@ -292,14 +283,13 @@ class GmailMonitor:
                     self.service = build(
                         "gmail", "v1", credentials=self.creds, cache_discovery=False
                     )
-                    with open(config.GMAIL_TOKEN_FILE, "w") as f:
-                        f.write(self.creds.to_json())
+                    write_private_text(settings.GMAIL_TOKEN_FILE, self.creds.to_json())
                     logger.info(t("gmail_auth_success"))
                     return True
                 except RefreshError:
                     pass
-            if os.path.exists(config.GMAIL_TOKEN_FILE):
-                os.remove(config.GMAIL_TOKEN_FILE)
+            if os.path.exists(settings.GMAIL_TOKEN_FILE):
+                os.remove(settings.GMAIL_TOKEN_FILE)
             self.creds = None
             raise TokenExpiredError(t("token_fully_expired"))
         return False
@@ -337,6 +327,7 @@ class GmailMonitor:
                         msg_id,
                         provider_id=provider["id"],
                         provider_name=provider["name"],
+                        kind=provider["kind"],
                     )
                     if email_data:
                         emails.append(email_data)
@@ -353,7 +344,11 @@ class GmailMonitor:
         return self.get_unread_emails(_retry=_retry)
 
     def _get_email_content(
-        self, msg_id: str, provider_id: str = "claude", provider_name: str = "Claude"
+        self,
+        msg_id: str,
+        provider_id: str = "claude",
+        provider_name: str = "Claude",
+        kind: str = "auth",
     ) -> dict[str, Any] | None:
         """Get email content."""
         try:
@@ -364,39 +359,48 @@ class GmailMonitor:
             headers = message["payload"]["headers"]
             subject = self._get_header(headers, "subject", t("no_subject"))
             sender = self._get_header(headers, "from", t("unknown_sender"))
+            received_at = int(message.get("internalDate", "0")) / 1000
 
             body = self._extract_body(message["payload"])
-            auth_data = self._extract_auth_data(body, provider_id, provider_name)
-            resource_data = None
+            auth_data = (
+                self._extract_auth_data(body, provider_id, provider_name)
+                if kind == "auth"
+                else None
+            )
             payment_data = None
 
-            if not auth_data:
-                resource_data = self._classify_resource_email(body, subject, sender, provider_id)
-
-            if not auth_data and not resource_data:
+            if kind == "billing":
                 payment_data = self._classify_payment_email(body, subject, provider_id)
                 if payment_data:
                     payment_data["provider"] = provider_id
                     payment_data["provider_name"] = provider_name
 
-            if resource_data:
-                resource_data["provider"] = provider_id
-                resource_data["provider_name"] = provider_name
-
             return {
                 "id": msg_id,
                 "provider": provider_id,
                 "provider_name": provider_name,
+                "kind": kind,
                 "subject": subject,
                 "from": sender,
+                "received_at": received_at,
+                "stale": self._is_stale(kind, received_at),
                 "body": body,
                 "auth_data": auth_data,
-                "resource_data": resource_data,
                 "payment_data": payment_data,
             }
         except Exception as e:
             logger.error(t("email_read_error", msg_id=msg_id, error=e))
             return None
+
+    def _is_stale(self, kind: str, received_at: float, now: float | None = None) -> bool:
+        if received_at <= 0:
+            return True
+        max_age = (
+            settings.AUTH_EMAIL_MAX_AGE_SECONDS
+            if kind == "auth"
+            else settings.BILLING_EMAIL_MAX_AGE_SECONDS
+        )
+        return (now or time.time()) - received_at > max_age
 
     def _get_header(self, headers: list[dict], name: str, default: str = "") -> str:
         """Extract header value by name."""
@@ -547,7 +551,9 @@ class GmailMonitor:
             return {"type": "openai_usage_limits_increased"}
 
         if "не будет продлен" in subject_lower or "not be renewed" in subject_lower:
-            period_match = re.search(r"периода\s+([^.\n]+)", clean_text, re.IGNORECASE) or re.search(
+            period_match = re.search(
+                r"периода\s+([^.\n]+)", clean_text, re.IGNORECASE
+            ) or re.search(
                 r"(?:до конца расчетного периода|until)\s+([^.\n]+)",
                 clean_text,
                 re.IGNORECASE,
@@ -591,100 +597,6 @@ class GmailMonitor:
                 }
 
         return None
-
-    def _classify_resource_email(
-        self, body: str, subject: str, sender: str, provider_id: str
-    ) -> dict[str, Any] | None:
-        """Detect AI resource/status incident emails."""
-        if provider_id != "openai":
-            return None
-
-        sender_lower = sender.lower()
-        if "status.incident.io" not in sender_lower and "incident.io" not in sender_lower:
-            return None
-
-        status_data = self._extract_incident_status(self._clean_email_text(body), subject)
-        if not status_data:
-            return None
-
-        status_data["type"] = "resource_status"
-        return status_data
-
-    def _significant_lines(self, text: str) -> list[str]:
-        lines = []
-        for raw_line in text.replace("\r\n", "\n").replace("\r", "\n").split("\n"):
-            line = raw_line.strip()
-            if not line:
-                continue
-            if re.fullmatch(r"[-*_=\s]{3,}", line):
-                continue
-            lines.append(line)
-        return lines
-
-    def _extract_incident_components(self, lines: list[str]) -> list[str]:
-        try:
-            start = next(i for i, line in enumerate(lines) if line.lower() == "affected components:")
-        except StopIteration:
-            return []
-
-        components: list[str] = []
-        component_statuses = sorted(INCIDENT_STATUSES, key=len, reverse=True)
-        for line in lines[start + 1 :]:
-            lower = line.lower()
-            if lower.startswith(("view incident", "unsubscribe")):
-                break
-            if lower == "affected components:":
-                continue
-
-            component = line
-            for status in component_statuses:
-                suffix = f" {status}"
-                if line.lower().endswith(suffix.lower()):
-                    name = line[: -len(suffix)].strip()
-                    component = f"{name} ({status})" if name else status
-                    break
-            components.append(component)
-
-        return components
-
-    def _extract_incident_status(self, text: str, subject: str) -> dict[str, Any] | None:
-        lines = self._significant_lines(text)
-        if not lines:
-            return None
-
-        statuses = "|".join(re.escape(status) for status in INCIDENT_STATUSES)
-        status_match = re.search(
-            rf"^({statuses})\s+Started\s+(.+)$",
-            text,
-            re.IGNORECASE | re.MULTILINE,
-        )
-        if not status_match:
-            return None
-
-        status = status_match.group(1).title()
-        status_line = status_match.group(0).strip()
-        details_lines: list[str] = []
-        collecting = False
-        for line in lines:
-            if line == status_line:
-                collecting = True
-                continue
-            if not collecting:
-                continue
-            lower = line.lower()
-            if lower == "affected components:" or lower.startswith(("view incident", "unsubscribe")):
-                break
-            details_lines.append(line)
-
-        return {
-            "event": lines[0],
-            "title": subject.strip(),
-            "status": status,
-            "started_at": status_match.group(2).strip(),
-            "details": " ".join(details_lines).strip(),
-            "components": self._extract_incident_components(lines),
-            "resolved": status.lower() == "resolved",
-        }
 
     def _extract_payment_failed(self, body: str, subject: str) -> dict[str, str] | None:
         """Extract failed payment info from email."""

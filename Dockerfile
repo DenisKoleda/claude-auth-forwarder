@@ -2,7 +2,7 @@ FROM python:3.11-slim
 
 LABEL maintainer="deniskoleda"
 LABEL description="Telegram bot for forwarding Claude.ai auth links"
-LABEL version="1.0.0"
+LABEL version="2.0.0"
 
 # Set working directory
 WORKDIR /app
@@ -18,15 +18,19 @@ COPY telegram_bot.py .
 COPY telegram_admin.py .
 COPY admin_state.py .
 COPY i18n.py .
-COPY config.py .
+COPY settings.py .
+COPY state_store.py .
+COPY status_monitor.py .
+COPY healthcheck.py .
+COPY secure_files.py .
 
 # Create non-root user for security
 RUN useradd -m -u 1000 botuser && chown -R botuser:botuser /app
 USER botuser
 
 # Health check
-HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
-  CMD python -c "import telegram; print('OK')" || exit 1
+HEALTHCHECK --interval=30s --timeout=10s --start-period=45s --retries=3 \
+  CMD python healthcheck.py
 
 # Run the bot
 CMD ["python", "-u", "main.py"]

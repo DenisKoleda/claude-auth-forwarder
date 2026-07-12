@@ -2,12 +2,13 @@
 -r requirements.txt
 
 # Linting & Formatting
-ruff>=0.1.0
+ruff==0.14.10
 
 # Type checking
-mypy>=1.0.0
-types-requests>=2.31.0
+mypy==1.19.1
+types-requests==2.32.4.20260107
 
 # Security
-bandit>=1.7.0
-safety>=2.3.0
+bandit==1.9.2
+pytest==8.4.1
+pip-audit==2.9.0
